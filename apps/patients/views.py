@@ -1,18 +1,15 @@
-from rest_framework import viewsets, status, filters
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q, Avg, Count, Sum
+from django.db.models import Q, Avg, Sum
 from django.utils import timezone
 
-# ✅ Import drf-spectacular decorators
+from rest_framework import viewsets, status, filters
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, BasePermission
+from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
+
 from drf_spectacular.utils import (
-    extend_schema,
-    extend_schema_view,
-    OpenApiParameter,
-    OpenApiExample,
-    OpenApiResponse
+    extend_schema, extend_schema_view,
+    OpenApiParameter, OpenApiExample, OpenApiResponse
 )
 
 from .models import PatientProfile, PatientVitals, PatientAllergy
@@ -26,15 +23,52 @@ from .serializers import (
     PatientAllergyCreateUpdateSerializer,
     PatientStatisticsSerializer
 )
-from apps.accounts.permissions import (
-    IsAdministrator, IsDoctor, IsReceptionist, IsNurse
-)
+
+# --------------------------------------------------------------------------------------
+# Permission helper that maps DRF actions -> Django model permission codenames
+# Adjust APP_LABEL if your app label isn't literally "patients".
+# --------------------------------------------------------------------------------------
+class ActionPermissions(BasePermission):
+    APP_LABEL = 'patients'  # change if your app label differs
+
+    action_map = {
+        # Core CRUD
+        'list':            [f'{APP_LABEL}.view_patientprofile'],
+        'retrieve':        [f'{APP_LABEL}.view_patientprofile'],
+        'create':          [f'{APP_LABEL}.add_patientprofile'],
+        'update':          [f'{APP_LABEL}.change_patientprofile'],
+        'partial_update':  [f'{APP_LABEL}.change_patientprofile'],
+        'destroy':         [f'{APP_LABEL}.delete_patientprofile'],
+
+        # Vitals
+        'record_vitals':   [f'{APP_LABEL}.add_patientvitals'],
+        'vitals':          [f'{APP_LABEL}.view_patientvitals'],
+
+        # Allergies
+        'add_allergy':     [f'{APP_LABEL}.add_patientallergy'],
+        'allergies':       [f'{APP_LABEL}.view_patientallergy'],
+        'update_allergy':  [f'{APP_LABEL}.change_patientallergy'],
+        'delete_allergy':  [f'{APP_LABEL}.delete_patientallergy'],
+
+        # Other
+        'update_visit':    [f'{APP_LABEL}.change_patientprofile'],
+        'statistics':      [f'{APP_LABEL}.view_patientprofile'],  # plus admin-group check in view
+        'activate':        [f'{APP_LABEL}.change_patientprofile'], # plus admin-group check in view
+        'mark_deceased':   [f'{APP_LABEL}.change_patientprofile'], # plus admin-group check in view
+    }
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        needed = self.action_map.get(getattr(view, 'action', None), [])
+        return user.has_perms(needed) if needed else True
 
 
 @extend_schema_view(
     list=extend_schema(
         summary="List patients",
-        description="Get list of patient profiles with extensive filtering options",
+        description="Get list of patient profiles with filtering, search and ordering.",
         parameters=[
             OpenApiParameter(name='status', type=str, description='Filter by status'),
             OpenApiParameter(name='gender', type=str, description='Filter by gender'),
@@ -51,12 +85,12 @@ from apps.accounts.permissions import (
     ),
     retrieve=extend_schema(
         summary="Get patient details",
-        description="Retrieve complete patient profile with vitals and allergies",
+        description="Retrieve a complete patient profile with vitals and allergies.",
         tags=['Patients']
     ),
     create=extend_schema(
         summary="Register patient",
-        description="Create a new patient profile (Walk-in or registered user)",
+        description="Create a new patient profile (walk-in or registered user).",
         examples=[
             OpenApiExample(
                 'Patient Registration Example',
@@ -86,514 +120,321 @@ from apps.accounts.permissions import (
     ),
     update=extend_schema(
         summary="Update patient profile",
-        description="Update patient profile information",
+        description="Update patient profile information.",
         tags=['Patients']
     ),
     partial_update=extend_schema(
         summary="Partial update patient profile",
-        description="Partially update patient profile",
+        description="Partially update patient profile.",
         tags=['Patients']
     ),
     destroy=extend_schema(
         summary="Deactivate patient profile",
-        description="Soft delete - deactivate patient profile (Admin only)",
+        description="Soft delete - set status to inactive (Admin only).",
         tags=['Patients']
     ),
 )
 class PatientProfileViewSet(viewsets.ModelViewSet):
     """
-    Patient Profile Management
-    
-    Complete patient management including:
-    - Patient registration (walk-in or registered users)
-    - Profile management
-    - Vitals tracking
-    - Allergy management
-    - Visit tracking
+    Patient Profile Management: registration, profile CRUD, vitals, allergies, visits.
     """
     queryset = PatientProfile.objects.all()
+    permission_classes = [IsAuthenticated, ActionPermissions]
+
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'gender', 'blood_group', 'city', 'state']
-    search_fields = [
-        'patient_id', 'first_name', 'last_name', 'middle_name',
-        'mobile_primary', 'email'
-    ]
-    ordering_fields = [
-        'registration_date', 'last_visit_date', 'age',
-        'total_visits', 'first_name', 'last_name'
-    ]
+    search_fields = ['patient_id', 'first_name', 'last_name', 'middle_name', 'mobile_primary', 'email']
+    ordering_fields = ['registration_date', 'last_visit_date', 'age', 'total_visits', 'first_name', 'last_name']
     ordering = ['-registration_date']
-    
+
+    # ----- serializers -----
     def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
         if self.action == 'list':
             return PatientProfileListSerializer
         elif self.action in ['create', 'update', 'partial_update']:
             return PatientProfileCreateUpdateSerializer
         return PatientProfileDetailSerializer
-    
-    def get_permissions(self):
-        """Custom permissions per action"""
-        if self.action in ['list', 'retrieve']:
-            return [IsAuthenticated()]
-        elif self.action == 'create':
-            # Receptionists, Doctors, Nurses, Admins can create
-            return [IsAuthenticated()]
-        elif self.action in ['update', 'partial_update']:
-            # Receptionists, Doctors, Admins can update
-            return [IsAuthenticated()]
-        elif self.action == 'destroy':
-            return [IsAdministrator()]
-        return [IsAuthenticated()]
-    
+
+    # ----- queryset scoping -----
     def get_queryset(self):
-        """Filter queryset based on user role and query params"""
-        queryset = PatientProfile.objects.prefetch_related(
-            'vitals', 'allergies'
-        )
-        
+        qs = PatientProfile.objects.prefetch_related('vitals', 'allergies')
         user = self.request.user
-        
+
         # Patients can only see their own profile
         if user.groups.filter(name='Patient').exists():
             if hasattr(user, 'patient_profile'):
-                queryset = queryset.filter(id=user.patient_profile.id)
+                qs = qs.filter(id=user.patient_profile.id)
             else:
-                queryset = queryset.none()
-        
-        # Filter by age range
+                return PatientProfile.objects.none()
+
+        # age range
         age_min = self.request.query_params.get('age_min')
         age_max = self.request.query_params.get('age_max')
         if age_min:
-            try:
-                queryset = queryset.filter(age__gte=int(age_min))
-            except ValueError:
-                pass
+            try: qs = qs.filter(age__gte=int(age_min))
+            except ValueError: pass
         if age_max:
-            try:
-                queryset = queryset.filter(age__lte=int(age_max))
-            except ValueError:
-                pass
-        
-        # Filter by insurance status
+            try: qs = qs.filter(age__lte=int(age_max))
+            except ValueError: pass
+
+        # insurance
         has_insurance = self.request.query_params.get('has_insurance')
         if has_insurance:
             if has_insurance.lower() == 'true':
-                queryset = queryset.filter(
-                    insurance_provider__isnull=False
-                ).exclude(insurance_provider='')
+                qs = qs.filter(insurance_provider__isnull=False).exclude(insurance_provider='')
             else:
-                queryset = queryset.filter(
-                    Q(insurance_provider__isnull=True) | 
-                    Q(insurance_provider='')
-                )
-        
-        # Filter by registration date range
+                qs = qs.filter(Q(insurance_provider__isnull=True) | Q(insurance_provider=''))
+
+        # registration dates
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         if date_from:
-            queryset = queryset.filter(registration_date__gte=date_from)
+            qs = qs.filter(registration_date__gte=date_from)
         if date_to:
-            queryset = queryset.filter(registration_date__lte=date_to)
-        
-        return queryset
-    
+            qs = qs.filter(registration_date__lte=date_to)
+
+        return qs
+
+    # ----- standard actions -----
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        
+        qs = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
+            s = self.get_serializer(page, many=True)
+            return self.get_paginated_response(s.data)
+        s = self.get_serializer(qs, many=True)
+        return Response({'success': True, 'data': s.data})
+
     def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        
-        # Patients can only view their own profile
+        obj = self.get_object()
+        # Patient self-view check
         if request.user.groups.filter(name='Patient').exists():
-            if not hasattr(request.user, 'patient_profile') or \
-               instance.id != request.user.patient_profile.id:
-                return Response({
-                    'success': False,
-                    'error': 'Permission denied'
-                }, status=status.HTTP_403_FORBIDDEN)
-        
-        serializer = self.get_serializer(instance)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
+            if not hasattr(request.user, 'patient_profile') or obj.id != request.user.patient_profile.id:
+                return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        s = self.get_serializer(obj)
+        return Response({'success': True, 'data': s.data})
+
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(
-            data=request.data,
-            context={'request': request}
+        s = self.get_serializer(data=request.data, context={'request': request})
+        s.is_valid(raise_exception=True)
+        patient = s.save()
+        return Response(
+            {'success': True, 'message': 'Patient registered successfully',
+             'data': PatientProfileDetailSerializer(patient).data},
+            status=status.HTTP_201_CREATED
         )
-        serializer.is_valid(raise_exception=True)
-        patient = serializer.save()
-        
-        return Response({
-            'success': True,
-            'message': 'Patient registered successfully',
-            'data': PatientProfileDetailSerializer(patient).data
-        }, status=status.HTTP_201_CREATED)
-    
+
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        
-        # Check permission
+        obj = self.get_object()
+        # Patient self-edit check
         if request.user.groups.filter(name='Patient').exists():
-            if not hasattr(request.user, 'patient_profile') or \
-               instance.id != request.user.patient_profile.id:
-                return Response({
-                    'success': False,
-                    'error': 'Permission denied'
-                }, status=status.HTTP_403_FORBIDDEN)
-        
-        serializer = self.get_serializer(
-            instance, data=request.data, partial=partial,
-            context={'request': request}
-        )
-        serializer.is_valid(raise_exception=True)
-        patient = serializer.save()
-        
-        return Response({
-            'success': True,
-            'message': 'Patient profile updated successfully',
-            'data': PatientProfileDetailSerializer(patient).data
-        })
-    
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        
-        # Soft delete - set status to inactive
-        instance.status = 'inactive'
-        instance.save()
-        
-        return Response({
-            'success': True,
-            'message': 'Patient profile deactivated successfully'
-        }, status=status.HTTP_204_NO_CONTENT)
-    
+            if not hasattr(request.user, 'patient_profile') or obj.id != request.user.patient_profile.id:
+                return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        s = self.get_serializer(obj, data=request.data, partial=partial, context={'request': request})
+        s.is_valid(raise_exception=True)
+        patient = s.save()
+        return Response({'success': True, 'message': 'Patient profile updated successfully',
+                         'data': PatientProfileDetailSerializer(patient).data})
 
-# ============================================
-    # CUSTOM ACTIONS - ADD THESE TO PatientProfileViewSet CLASS
-    # ============================================
-    
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        obj.status = 'inactive'  # soft-delete
+        obj.save()
+        return Response({'success': True, 'message': 'Patient profile deactivated successfully'},
+                        status=status.HTTP_204_NO_CONTENT)
+
+    # =========================
+    # Custom Actions (Vitals)
+    # =========================
     @extend_schema(
         summary="Record patient vitals",
-        description="Record vital signs for a patient",
+        description="Record vital signs for a patient.",
         request=PatientVitalsCreateUpdateSerializer,
-        responses={
-            201: PatientVitalsSerializer,
-            400: OpenApiResponse(description="Validation error")
-        },
-        examples=[
-            OpenApiExample(
-                'Vitals Example',
-                value={
-                    'temperature': 98.6,
-                    'blood_pressure_systolic': 120,
-                    'blood_pressure_diastolic': 80,
-                    'heart_rate': 72,
-                    'respiratory_rate': 16,
-                    'oxygen_saturation': 98.5,
-                    'blood_glucose': 95.0,
-                    'notes': 'Normal vitals'
-                },
-                request_only=True,
-            ),
-        ],
+        responses={201: PatientVitalsSerializer, 400: OpenApiResponse(description="Validation error")},
+        examples=[OpenApiExample('Vitals Example', value={
+            'temperature': 98.6,
+            'blood_pressure_systolic': 120,
+            'blood_pressure_diastolic': 80,
+            'heart_rate': 72,
+            'respiratory_rate': 16,
+            'oxygen_saturation': 98.5,
+            'blood_glucose': 95.0,
+            'notes': 'Normal vitals'
+        }, request_only=True)],
         tags=['Vitals']
     )
     @action(detail=True, methods=['post'])
     def record_vitals(self, request, pk=None):
-        """Record patient vitals"""
         patient = self.get_object()
-        
-        serializer = PatientVitalsCreateUpdateSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(
-                patient=patient,
-                recorded_by=request.user
-            )
-            return Response({
-                'success': True,
-                'message': 'Vitals recorded successfully',
-                'data': serializer.data
-            }, status=status.HTTP_201_CREATED)
-        
-        return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+        s = PatientVitalsCreateUpdateSerializer(data=request.data)
+        if s.is_valid():
+            s.save(patient=patient, recorded_by=request.user)
+            return Response({'success': True, 'message': 'Vitals recorded successfully', 'data': s.data},
+                            status=status.HTTP_201_CREATED)
+        return Response({'success': False, 'errors': s.errors}, status=status.HTTP_400_BAD_REQUEST)
+
     @extend_schema(
         summary="Get patient vitals history",
-        description="Retrieve patient's vital signs history",
-        parameters=[
-            OpenApiParameter(
-                name='limit',
-                type=int,
-                description='Number of records to return (default: 10)',
-                required=False
-            ),
-        ],
+        description="Retrieve a patient's vital signs history.",
+        parameters=[OpenApiParameter(name='limit', type=int, description='Number of records (default 10)')],
         responses={200: PatientVitalsSerializer(many=True)},
         tags=['Vitals']
     )
     @action(detail=True, methods=['get'])
     def vitals(self, request, pk=None):
-        """Get patient vitals history"""
         patient = self.get_object()
-        
-        # Get query params for filtering
         limit = request.query_params.get('limit', 10)
         try:
             limit = int(limit)
         except ValueError:
             limit = 10
-        
-        vitals = patient.vitals.all()[:limit]
-        serializer = PatientVitalsSerializer(vitals, many=True)
-        
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
+        items = patient.vitals.all()[:limit]
+        s = PatientVitalsSerializer(items, many=True)
+        return Response({'success': True, 'data': s.data})
+
+    # =========================
+    # Custom Actions (Allergies)
+    # =========================
     @extend_schema(
         summary="Add patient allergy",
-        description="Add a new allergy to patient's record",
+        description="Add a new allergy to a patient's record.",
         request=PatientAllergyCreateUpdateSerializer,
-        responses={
-            201: PatientAllergySerializer,
-            400: OpenApiResponse(description="Validation error")
-        },
-        examples=[
-            OpenApiExample(
-                'Allergy Example',
-                value={
-                    'allergy_type': 'drug',
-                    'allergen': 'Penicillin',
-                    'severity': 'severe',
-                    'symptoms': 'Skin rash, breathing difficulty',
-                    'treatment': 'Avoid penicillin-based medications',
-                    'is_active': True
-                },
-                request_only=True,
-            ),
-        ],
+        responses={201: PatientAllergySerializer, 400: OpenApiResponse(description="Validation error")},
+        examples=[OpenApiExample('Allergy Example', value={
+            'allergy_type': 'drug',
+            'allergen': 'Penicillin',
+            'severity': 'severe',
+            'symptoms': 'Skin rash, breathing difficulty',
+            'treatment': 'Avoid penicillin-based medications',
+            'is_active': True
+        }, request_only=True)],
         tags=['Allergies']
     )
     @action(detail=True, methods=['post'])
     def add_allergy(self, request, pk=None):
-        """Add patient allergy"""
         patient = self.get_object()
-        
-        serializer = PatientAllergyCreateUpdateSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(
-                patient=patient,
-                recorded_by=request.user
-            )
-            return Response({
-                'success': True,
-                'message': 'Allergy added successfully',
-                'data': serializer.data
-            }, status=status.HTTP_201_CREATED)
-        
-        return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+        s = PatientAllergyCreateUpdateSerializer(data=request.data)
+        if s.is_valid():
+            s.save(patient=patient, recorded_by=request.user)
+            return Response({'success': True, 'message': 'Allergy added successfully', 'data': s.data},
+                            status=status.HTTP_201_CREATED)
+        return Response({'success': False, 'errors': s.errors}, status=status.HTTP_400_BAD_REQUEST)
+
     @extend_schema(
         summary="Get patient allergies",
-        description="Retrieve patient's allergy records",
-        parameters=[
-            OpenApiParameter(
-                name='active_only',
-                type=bool,
-                description='Show only active allergies (default: true)',
-                required=False
-            ),
-        ],
+        description="Retrieve a patient's allergy records.",
+        parameters=[OpenApiParameter(name='active_only', type=bool, description='Only active (default true)')],
         responses={200: PatientAllergySerializer(many=True)},
         tags=['Allergies']
     )
     @action(detail=True, methods=['get'])
     def allergies(self, request, pk=None):
-        """Get patient allergies"""
         patient = self.get_object()
-        
-        # Filter active allergies by default
         active_only = request.query_params.get('active_only', 'true')
-        allergies = patient.allergies.all()
-        
-        if active_only.lower() == 'true':
-            allergies = allergies.filter(is_active=True)
-        
-        serializer = PatientAllergySerializer(allergies, many=True)
-        
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
+        qs = patient.allergies.all()
+        if str(active_only).lower() == 'true':
+            qs = qs.filter(is_active=True)
+        s = PatientAllergySerializer(qs, many=True)
+        return Response({'success': True, 'data': s.data})
+
     @extend_schema(
         summary="Update patient allergy",
-        description="Update a specific allergy record",
+        description="Update a specific allergy record.",
         request=PatientAllergyCreateUpdateSerializer,
-        responses={
-            200: PatientAllergySerializer,
-            404: OpenApiResponse(description="Allergy not found")
-        },
+        responses={200: PatientAllergySerializer, 404: OpenApiResponse(description="Allergy not found")},
         tags=['Allergies']
     )
     @action(detail=True, methods=['put', 'patch'], url_path='allergies/(?P<allergy_id>[^/.]+)')
     def update_allergy(self, request, pk=None, allergy_id=None):
-        """Update specific allergy"""
         patient = self.get_object()
-        
         try:
             allergy = patient.allergies.get(id=allergy_id)
         except PatientAllergy.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Allergy not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
+            return Response({'success': False, 'error': 'Allergy not found'}, status=status.HTTP_404_NOT_FOUND)
+
         partial = request.method == 'PATCH'
-        serializer = PatientAllergyCreateUpdateSerializer(
-            allergy, data=request.data, partial=partial
-        )
-        
-        if serializer.is_valid():
-            serializer.save()
-            return Response({
-                'success': True,
-                'message': 'Allergy updated successfully',
-                'data': serializer.data
-            })
-        
-        return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+        s = PatientAllergyCreateUpdateSerializer(allergy, data=request.data, partial=partial)
+        if s.is_valid():
+            s.save()
+            return Response({'success': True, 'message': 'Allergy updated successfully', 'data': s.data})
+        return Response({'success': False, 'errors': s.errors}, status=status.HTTP_400_BAD_REQUEST)
+
     @extend_schema(
         summary="Delete/deactivate patient allergy",
-        description="Soft delete - deactivate an allergy record",
-        responses={
-            204: OpenApiResponse(description="Allergy deactivated"),
-            404: OpenApiResponse(description="Allergy not found")
-        },
+        description="Soft delete - set is_active to False.",
+        responses={204: OpenApiResponse(description="Allergy deactivated"), 404: OpenApiResponse(description="Not found")},
         tags=['Allergies']
     )
     @action(detail=True, methods=['delete'], url_path='allergies/(?P<allergy_id>[^/.]+)')
     def delete_allergy(self, request, pk=None, allergy_id=None):
-        """Delete/deactivate specific allergy"""
         patient = self.get_object()
-        
         try:
             allergy = patient.allergies.get(id=allergy_id)
-            # Soft delete - set is_active to False
-            allergy.is_active = False
-            allergy.save()
-            
-            return Response({
-                'success': True,
-                'message': 'Allergy deactivated successfully'
-            }, status=status.HTTP_204_NO_CONTENT)
         except PatientAllergy.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Allergy not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-    
+            return Response({'success': False, 'error': 'Allergy not found'}, status=status.HTTP_404_NOT_FOUND)
+        allergy.is_active = False
+        allergy.save()
+        return Response({'success': True, 'message': 'Allergy deactivated successfully'},
+                        status=status.HTTP_204_NO_CONTENT)
+
+    # =========================
+    # Visits / Stats / Admin ops
+    # =========================
     @extend_schema(
         summary="Record patient visit",
-        description="Increment visit count and update last visit date",
+        description="Increment visit count and update last visit date.",
         request=None,
         responses={200: OpenApiResponse(description="Visit recorded")},
         tags=['Patients']
     )
     @action(detail=True, methods=['post'])
     def update_visit(self, request, pk=None):
-        """Increment visit count and update last visit date"""
         patient = self.get_object()
-        
         patient.total_visits += 1
         patient.last_visit_date = timezone.now()
         patient.save()
-        
         return Response({
             'success': True,
             'message': 'Visit recorded successfully',
-            'data': {
-                'total_visits': patient.total_visits,
-                'last_visit_date': patient.last_visit_date
-            }
+            'data': {'total_visits': patient.total_visits, 'last_visit_date': patient.last_visit_date}
         })
-    
+
     @extend_schema(
         summary="Get patient statistics",
-        description="Get statistical overview of all patients (Admin only)",
+        description="Statistical overview of all patients (Admin only).",
         responses={200: PatientStatisticsSerializer},
         tags=['Patients']
     )
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get patient statistics (Admin only)"""
+        # Keep your strict admin requirement
         if not request.user.groups.filter(name='Administrator').exists():
-            return Response({
-                'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+
         total = PatientProfile.objects.count()
         active = PatientProfile.objects.filter(status='active').count()
         inactive = PatientProfile.objects.filter(status='inactive').count()
         deceased = PatientProfile.objects.filter(status='deceased').count()
-        
-        # Patients with valid insurance
+
         import datetime
         patients_with_insurance = PatientProfile.objects.filter(
             insurance_provider__isnull=False,
             insurance_expiry_date__gte=datetime.date.today()
         ).count()
-        
-        # Average age
-        avg_age = PatientProfile.objects.aggregate(
-            avg=Avg('age')
-        )['avg'] or 0
-        
-        # Total visits
-        total_visits = PatientProfile.objects.aggregate(
-            total=Sum('total_visits')
-        )['total'] or 0
-        
-        # Gender distribution
-        gender_dist = {}
-        for gender in PatientProfile.GENDER_CHOICES:
-            count = PatientProfile.objects.filter(gender=gender[0]).count()
-            gender_dist[gender[1]] = count
-        
-        # Blood group distribution
+
+        avg_age = PatientProfile.objects.aggregate(avg=Avg('age'))['avg'] or 0
+        total_visits = PatientProfile.objects.aggregate(total=Sum('total_visits'))['total'] or 0
+
+        gender_dist = {label: PatientProfile.objects.filter(gender=code).count()
+                       for code, label in getattr(PatientProfile, 'GENDER_CHOICES', [])}
+
         blood_dist = {}
-        for bg in PatientProfile.BLOOD_GROUP_CHOICES:
-            count = PatientProfile.objects.filter(blood_group=bg[0]).count()
-            if count > 0:
-                blood_dist[bg[0]] = count
-        
+        for bg_code, _bg_label in getattr(PatientProfile, 'BLOOD_GROUP_CHOICES', []):
+            c = PatientProfile.objects.filter(blood_group=bg_code).count()
+            if c > 0:
+                blood_dist[bg_code] = c
+
         data = {
             'total_patients': total,
             'active_patients': active,
@@ -605,61 +446,40 @@ class PatientProfileViewSet(viewsets.ModelViewSet):
             'gender_distribution': gender_dist,
             'blood_group_distribution': blood_dist
         }
-        
-        serializer = PatientStatisticsSerializer(data)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
+
+        s = PatientStatisticsSerializer(data)
+        return Response({'success': True, 'data': s.data})
+
     @extend_schema(
         summary="Activate patient profile",
-        description="Activate a patient profile (Admin only)",
+        description="Activate a patient profile (Admin only).",
         request=None,
         responses={200: PatientProfileDetailSerializer},
         tags=['Patients']
     )
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
-        """Activate patient profile (Admin only)"""
         if not request.user.groups.filter(name='Administrator').exists():
-            return Response({
-                'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
         patient = self.get_object()
         patient.status = 'active'
         patient.save()
-        
-        return Response({
-            'success': True,
-            'message': 'Patient profile activated successfully',
-            'data': PatientProfileDetailSerializer(patient).data
-        })
-    
+        return Response({'success': True, 'message': 'Patient profile activated successfully',
+                         'data': PatientProfileDetailSerializer(patient).data})
+
     @extend_schema(
         summary="Mark patient as deceased",
-        description="Mark a patient as deceased (Admin only)",
+        description="Mark a patient as deceased (Admin only).",
         request=None,
         responses={200: PatientProfileDetailSerializer},
         tags=['Patients']
     )
     @action(detail=True, methods=['post'])
     def mark_deceased(self, request, pk=None):
-        """Mark patient as deceased (Admin only)"""
         if not request.user.groups.filter(name='Administrator').exists():
-            return Response({
-                'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
         patient = self.get_object()
         patient.status = 'deceased'
         patient.save()
-        
-        return Response({
-            'success': True,
-            'message': 'Patient marked as deceased',
-            'data': PatientProfileDetailSerializer(patient).data
-        })
+        return Response({'success': True, 'message': 'Patient marked as deceased',
+                         'data': PatientProfileDetailSerializer(patient).data})
