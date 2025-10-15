@@ -497,3 +497,6 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
             'message': 'Doctor profile deactivated successfully',
             'data': DoctorProfileDetailSerializer(doctor).data,
         })
+
+
+# Note: URL routing is handled in apps/doctors/urls.py using DefaultRouter to register the viewsets.
