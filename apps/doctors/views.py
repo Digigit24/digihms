@@ -499,4 +499,4 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
         })
 
 
-# Note: URL routing is handled in apps/doctors/urls.py using DefaultRouter to register the viewsets.
+# trying again
