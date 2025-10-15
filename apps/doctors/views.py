@@ -486,6 +486,7 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
     def deactivate(self, request, pk=None):
         doctor = self.get_object()
         app_label = doctor._meta.app_label
+        
         change_perm = f'{app_label}.change_{doctor._meta.model_name}'
         if not request.user.has_perm(change_perm):
             return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
