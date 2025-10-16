@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 import datetime
+from django.utils import timezone
 
 
 class Specialty(models.Model):
@@ -116,8 +117,20 @@ class DoctorProfile(models.Model):
     
     @property
     def is_license_valid(self):
-        """Check if medical license is valid"""
-        return self.license_expiry_date > datetime.date.today()
+        """
+        Returns:
+          True  -> expiry date in the future (valid)
+          False -> expiry date in the past (invalid)
+          None  -> unknown (no expiry set)
+        """
+        exp = self.license_expiry_date
+        if not exp:
+            return None  # lets Django admin show a blank/unknown
+        return exp >= timezone.now().date()
+
+    # optional if you show this in list_display
+    is_license_valid.boolean = True
+    is_license_valid.short_description = "License valid?"
 
 
 class DoctorAvailability(models.Model):

@@ -32,6 +32,14 @@ class DoctorAvailabilityInline(admin.TabularInline):
 
 @admin.register(DoctorProfile)
 class DoctorProfileAdmin(admin.ModelAdmin):
+    readonly_fields = ('is_license_valid',)
+
+    def get_readonly_fields(self, request, obj=None):
+        ro = list(super().get_readonly_fields(request, obj))
+        # On add view (obj is None), don't evaluate model methods
+        if obj is None and 'is_license_valid' in ro:
+            ro.remove('is_license_valid')
+        return ro
     list_display = [
         'get_doctor_name', 'medical_license_number', 'status',
         'consultation_fee', 'years_of_experience', 'average_rating',
