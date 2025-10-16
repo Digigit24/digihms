@@ -161,12 +161,38 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
     ),
     create=extend_schema(
         summary="Create doctor profile",
-        description="Create a doctor profile (requires add permission).",
+        description="Create a doctor profile (requires add permission). Can create with existing user_id OR with new user_data.",
         examples=[
             OpenApiExample(
-                'Doctor Profile Example',
+                'With Existing User',
                 value={
                     'user_id': 2,
+                    'medical_license_number': 'MED123456',
+                    'license_issuing_authority': 'Medical Council of India',
+                    'license_issue_date': '2020-01-01',
+                    'license_expiry_date': '2030-01-01',
+                    'qualifications': 'MBBS, MD',
+                    'specialty_ids': [1, 2],
+                    'years_of_experience': 5,
+                    'consultation_fee': 500.00,
+                    'consultation_duration': 30,
+                    'status': 'active',
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                'With New User',
+                value={
+                    'user_data': {
+                        'username': 'dr.john',
+                        'email': 'dr.john@hospital.com',
+                        'password': 'SecurePass123',
+                        'first_name': 'John',
+                        'last_name': 'Doe',
+                        'phone': '1234567890',
+                        'city': 'Mumbai',
+                        'state': 'Maharashtra'
+                    },
                     'medical_license_number': 'MED123456',
                     'license_issuing_authority': 'Medical Council of India',
                     'license_issue_date': '2020-01-01',
@@ -214,6 +240,7 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
       we allow the change even if they don't hold the global change permission. This keeps a practical
       "self can edit" rule without any custom permission classes.
     - For other custom actions we check built-in perms by codename.
+    - Can create doctor profile with existing user_id OR by providing user_data to create new user.
     """
 
     queryset = (
@@ -497,6 +524,3 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
             'message': 'Doctor profile deactivated successfully',
             'data': DoctorProfileDetailSerializer(doctor).data,
         })
-
-
-# trying again 03
