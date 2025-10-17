@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     'apps.doctors',
     'apps.patients',
     'apps.hospital',
+    'apps.appointments',
 ]
 
 # --- Middleware ---

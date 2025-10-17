@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
 )
 
 from .serializers import (
+    UserCreateWithProfileSerializer,
     UserSerializer,
     UserCreateSerializer,
     LoginSerializer,
@@ -30,19 +31,23 @@ User = get_user_model()
 @extend_schema(tags=['Authentication'])
 class RegisterView(generics.CreateAPIView):
     """
-    User Registration
+    User Registration with Profile
     
-    Register a new user account. After successful registration, 
-    a token will be automatically generated.
+    Register a new user account with optional profile attachment.
+    
+    Supported scenarios:
+    1. Staff member (no profile required): Administrator, Receptionist, Nurse, etc.
+    2. Doctor (doctor_profile required)
+    3. Patient (patient_profile required)
     """
     queryset = User.objects.all()
-    serializer_class = UserCreateSerializer
+    serializer_class = UserCreateWithProfileSerializer
     permission_classes = [AllowAny]
     
     @extend_schema(
-        summary="Register new user",
-        description="Create a new user account with role assignment",
-        request=UserCreateSerializer,
+        summary="Register new user with profile",
+        description="Create a new user account with role assignment and optional profile",
+        request=UserCreateWithProfileSerializer,
         responses={
             201: OpenApiResponse(
                 response=UserSerializer,
@@ -52,7 +57,7 @@ class RegisterView(generics.CreateAPIView):
         },
         examples=[
             OpenApiExample(
-                'Registration Example',
+                'Doctor Registration Example',
                 value={
                     'email': 'doctor@hospital.com',
                     'username': 'doctor1',
@@ -61,7 +66,61 @@ class RegisterView(generics.CreateAPIView):
                     'first_name': 'John',
                     'last_name': 'Doe',
                     'phone': '+919876543210',
-                    'role': 'Doctor'
+                    'role': 'Doctor',
+                    'doctor_profile': {
+                        'medical_license_number': 'MED123456',
+                        'license_issuing_authority': 'Medical Council of India',
+                        'license_issue_date': '2020-01-01',
+                        'license_expiry_date': '2030-01-01',
+                        'qualifications': 'MBBS, MD',
+                        'specialty_ids': [1, 2],
+                        'years_of_experience': 5,
+                        'consultation_fee': 500.00,
+                        'consultation_duration': 30
+                    }
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                'Patient Registration Example',
+                value={
+                    'email': 'patient@example.com',
+                    'username': 'patient1',
+                    'password': 'SecurePass123',
+                    'password_confirm': 'SecurePass123',
+                    'first_name': 'Jane',
+                    'last_name': 'Smith',
+                    'phone': '+919876543210',
+                    'role': 'Patient',
+                    'patient_profile': {
+                        'first_name': 'Jane',
+                        'last_name': 'Smith',
+                        'date_of_birth': '1990-05-15',
+                        'gender': 'female',
+                        'mobile_primary': '+919876543210',
+                        'address_line1': '123 Main Street',
+                        'city': 'Mumbai',
+                        'state': 'Maharashtra',
+                        'pincode': '400001',
+                        'blood_group': 'O+',
+                        'emergency_contact_name': 'John Smith',
+                        'emergency_contact_phone': '+919876543211',
+                        'emergency_contact_relation': 'Spouse'
+                    }
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                'Staff Registration Example (No Profile)',
+                value={
+                    'email': 'receptionist@hospital.com',
+                    'username': 'reception1',
+                    'password': 'SecurePass123',
+                    'password_confirm': 'SecurePass123',
+                    'first_name': 'Mary',
+                    'last_name': 'Johnson',
+                    'phone': '+919876543210',
+                    'role': 'Receptionist'
                 },
                 request_only=True,
             ),
@@ -70,7 +129,14 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        
+        # Pass request context for created_by field
         user = serializer.save()
+        
+        # Set created_by for patient profile if exists
+        if hasattr(user, 'patient_profile') and request.user.is_authenticated:
+            user.patient_profile.created_by = request.user
+            user.patient_profile.save()
         
         # Generate token
         token, created = Token.objects.get_or_create(user=user)

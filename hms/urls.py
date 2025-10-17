@@ -17,7 +17,8 @@ urlpatterns = [
     path('api/auth/', include('apps.accounts.urls')),
     path('api/doctors/', include('apps.doctors.urls')),
     path('api/patients/', include('apps.patients.urls')),
-    path('api/hospital/', include('apps.hospital.urls')), 
+    path('api/hospital/', include('apps.hospital.urls')),
+    path('api/appointments/', include('apps.appointments.urls')), 
     
     # ✅ API Documentation endpoints
     # OpenAPI schema
