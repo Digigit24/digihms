@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count, Avg
 from django.utils import timezone
@@ -23,13 +23,33 @@ from .serializers import (
     AppointmentCreateUpdateSerializer,
     AppointmentTypeSerializer
 )
-from apps.accounts.permissions import (
-    IsAdministrator, 
-    IsReceptionist, 
-    IsDoctor
-)
+
+# -------------------------------------------------------------------
+# Local, group-based permissions (using built-in Django auth groups)
+# -------------------------------------------------------------------
+
+def _in_any_group(user, names):
+    return user and user.is_authenticated and user.groups.filter(name__in=names).exists()
+
+class IsAdminGroup(BasePermission):
+    """Allow only users in the 'Administrator' group."""
+    def has_permission(self, request, view):
+        return _in_any_group(request.user, ['Administrator'])
+
+class IsReceptionistOrAdmin(BasePermission):
+    """Allow 'Receptionist' OR 'Administrator'."""
+    def has_permission(self, request, view):
+        return _in_any_group(request.user, ['Receptionist', 'Administrator'])
+
+class IsReceptionistOrDoctorOrAdmin(BasePermission):
+    """Allow 'Receptionist' OR 'Doctor' OR 'Administrator'."""
+    def has_permission(self, request, view):
+        return _in_any_group(request.user, ['Receptionist', 'Doctor', 'Administrator'])
 
 
+# =========================
+# Appointment Types
+# =========================
 @extend_schema_view(
     list=extend_schema(
         summary="List appointment types",
@@ -41,14 +61,43 @@ from apps.accounts.permissions import (
         description="Create a new medical appointment type (Admin only)",
         tags=['Appointment Types']
     ),
+    retrieve=extend_schema(
+        summary="Get appointment type details",
+        description="Retrieve a specific appointment type",
+        tags=['Appointment Types']
+    ),
+    update=extend_schema(
+        summary="Update appointment type",
+        description="Update an existing appointment type (Admin only)",
+        tags=['Appointment Types']
+    ),
+    partial_update=extend_schema(
+        summary="Partially update appointment type",
+        description="Partially update an appointment type (Admin only)",
+        tags=['Appointment Types']
+    ),
+    destroy=extend_schema(
+        summary="Delete appointment type",
+        description="Delete an appointment type (Admin only)",
+        tags=['Appointment Types']
+    )
 )
 class AppointmentTypeViewSet(viewsets.ModelViewSet):
     """Appointment Type management"""
     queryset = AppointmentType.objects.all()
     serializer_class = AppointmentTypeSerializer
-    permission_classes = [IsAdministrator]
+
+    # Admin-only for write; authenticated can read
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated()]
+        # Writes: admin group only
+        return [IsAuthenticated(), IsAdminGroup()]
 
 
+# =========================
+# Appointments
+# =========================
 @extend_schema_view(
     list=extend_schema(
         summary="List appointments",
@@ -81,6 +130,11 @@ class AppointmentTypeViewSet(viewsets.ModelViewSet):
         description="Update an existing appointment's details",
         tags=['Appointments']
     ),
+    partial_update=extend_schema(
+        summary="Partially update appointment",
+        description="Partially update an existing appointment's details",
+        tags=['Appointments']
+    ),
     destroy=extend_schema(
         summary="Cancel appointment",
         description="Soft cancel an appointment",
@@ -90,29 +144,20 @@ class AppointmentTypeViewSet(viewsets.ModelViewSet):
 class AppointmentViewSet(viewsets.ModelViewSet):
     """Comprehensive Appointment Management"""
     queryset = Appointment.objects.select_related(
-        'patient', 'doctor', 'appointment_type', 
+        'patient', 'doctor', 'appointment_type',
         'created_by', 'cancelled_by', 'approved_by'
-    ).prefetch_related(
-        'follow_ups'
-    )
-    
-    filter_backends = [
-        DjangoFilterBackend, 
-        filters.SearchFilter, 
-        filters.OrderingFilter
-    ]
+    ).prefetch_related('follow_ups')
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = [
-        'doctor', 'patient', 'status', 
-        'priority', 'is_paid', 
+        'doctor', 'patient', 'status',
+        'priority', 'is_paid',
         'appointment_date', 'is_follow_up'
     ]
-    search_fields = [
-        'chief_complaint', 'symptoms', 
-        'notes', 'appointment_id'
-    ]
+    search_fields = ['chief_complaint', 'symptoms', 'notes', 'appointment_id']
     ordering_fields = [
-        'appointment_date', 'appointment_time', 
-        'created_at', 'updated_at', 
+        'appointment_date', 'appointment_time',
+        'created_at', 'updated_at',
         'priority', 'status'
     ]
     ordering = ['-appointment_date', '-appointment_time']
@@ -126,52 +171,65 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         return AppointmentDetailSerializer
 
     def get_permissions(self):
-        """Custom permissions per action"""
+        """Custom permissions per action (group-based, no custom permission module)."""
         if self.action in ['list', 'retrieve']:
             return [IsAuthenticated()]
         elif self.action in ['create', 'destroy']:
-            return [IsReceptionist() | IsAdministrator()]
+            # Receptionist or Admin
+            return [IsAuthenticated(), IsReceptionistOrAdmin()]
         elif self.action in ['update', 'partial_update']:
-            return [IsReceptionist() | IsDoctor() | IsAdministrator()]
+            # Receptionist or Doctor or Admin
+            return [IsAuthenticated(), IsReceptionistOrDoctorOrAdmin()]
+        # fallback
         return [IsAuthenticated()]
 
     def get_queryset(self):
         """Custom queryset filtering"""
         queryset = super().get_queryset()
-        
+
         # Users in patient/doctor role can only see their own appointments
         user = self.request.user
-        if user.groups.filter(name='Patient').exists():
-            queryset = queryset.filter(patient__user=user)
-        elif user.groups.filter(name='Doctor').exists():
-            queryset = queryset.filter(doctor__user=user)
-        
+        if user.is_authenticated:
+            if user.groups.filter(name='Patient').exists():
+                queryset = queryset.filter(patient__user=user)
+            elif user.groups.filter(name='Doctor').exists():
+                queryset = queryset.filter(doctor__user=user)
+
         # Date range filtering
-        date_from = self.request.query_params.get('date_from')
-        date_to = self.request.query_params.get('date_to')
+        params = self.request.query_params
+        date_from = params.get('date_from')
+        date_to = params.get('date_to')
         if date_from:
             queryset = queryset.filter(appointment_date__gte=date_from)
         if date_to:
             queryset = queryset.filter(appointment_date__lte=date_to)
-        
+
+        # doctor_id / patient_id (since you documented them)
+        doctor_id = params.get('doctor_id')
+        patient_id = params.get('patient_id')
+        if doctor_id:
+            queryset = queryset.filter(doctor_id=doctor_id)
+        if patient_id:
+            queryset = queryset.filter(patient_id=patient_id)
+
         return queryset
 
     def destroy(self, request, *args, **kwargs):
         """Custom destroy to soft cancel"""
         instance = self.get_object()
-        
+
         # Set cancellation details
         instance.status = Appointment.StatusChoices.CANCELLED
         instance.cancelled_at = timezone.now()
         instance.cancelled_by = request.user
-        
-        # Optional: Require cancellation reason
+
+        # Optional: Require/record cancellation reason
         cancellation_reason = request.data.get('cancellation_reason')
         if cancellation_reason:
             instance.cancellation_reason = cancellation_reason
-        
+
         instance.save()
-        
+
         serializer = self.get_serializer(instance)
         return Response({
             'success': True,
@@ -190,12 +248,12 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def check_in(self, request, pk=None):
         """Check-in to an appointment"""
         appointment = self.get_object()
-        
+
         # Update status and check-in time
         appointment.status = Appointment.StatusChoices.CHECKED_IN
         appointment.checked_in_at = timezone.now()
         appointment.save()
-        
+
         serializer = self.get_serializer(appointment)
         return Response({
             'success': True,
@@ -214,12 +272,12 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def start(self, request, pk=None):
         """Start the consultation"""
         appointment = self.get_object()
-        
+
         # Update status and start time
         appointment.status = Appointment.StatusChoices.IN_PROGRESS
         appointment.actual_start_time = timezone.now().time()
         appointment.save()
-        
+
         serializer = self.get_serializer(appointment)
         return Response({
             'success': True,
@@ -238,12 +296,12 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def complete(self, request, pk=None):
         """Complete the consultation"""
         appointment = self.get_object()
-        
+
         # Update status and end time
         appointment.status = Appointment.StatusChoices.COMPLETED
         appointment.actual_end_time = timezone.now().time()
         appointment.save()
-        
+
         serializer = self.get_serializer(appointment)
         return Response({
             'success': True,
@@ -259,31 +317,31 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     )
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get appointment statistics"""
-        if not request.user.groups.filter(name='Administrator').exists():
-            return Response({
-                'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+        """Get appointment statistics (Admin only)"""
+        if not _in_any_group(request.user, ['Administrator']):
+            return Response(
+                {'success': False, 'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # Total appointments
         total = Appointment.objects.count()
-        
+
         # Appointments by status
         status_counts = Appointment.objects.values('status').annotate(count=Count('id'))
         status_breakdown = {item['status']: item['count'] for item in status_counts}
-        
+
         # Appointments by priority
         priority_counts = Appointment.objects.values('priority').annotate(count=Count('id'))
         priority_breakdown = {item['priority']: item['count'] for item in priority_counts}
-        
+
         # Average consultation fee
         avg_fee = Appointment.objects.aggregate(avg_fee=Avg('consultation_fee'))['avg_fee'] or 0
-        
+
         # Paid vs Unpaid
         paid_count = Appointment.objects.filter(is_paid=True).count()
         unpaid_count = total - paid_count
-        
+
         return Response({
             'success': True,
             'data': {
