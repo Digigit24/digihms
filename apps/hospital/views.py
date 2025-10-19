@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import Hospital
 from .serializers import HospitalSerializer, HospitalUpdateSerializer
-from apps.accounts.permissions import IsAdministrator
+
 
 
 class HospitalConfigView(generics.RetrieveUpdateAPIView):
@@ -24,7 +24,7 @@ class HospitalConfigView(generics.RetrieveUpdateAPIView):
         """Anyone can view, only admins can update"""
         if self.request.method == 'GET':
             return []  # Public access
-        return [IsAdministrator()]
+        return [IsAuthenticated]
     
     def get_object(self):
         """Get the singleton hospital instance"""

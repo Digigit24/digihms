@@ -1,7 +1,6 @@
 from rest_framework import serializers
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.models import Group
-from django.contrib.auth import authenticate
 from django.db import transaction
 
 User = get_user_model()
@@ -13,7 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
     groups = serializers.StringRelatedField(many=True, read_only=True)
     full_address = serializers.CharField(read_only=True)
     
-    # Add profile info
+    # Profile indicators
     has_doctor_profile = serializers.SerializerMethodField()
     has_patient_profile = serializers.SerializerMethodField()
     
@@ -39,49 +38,6 @@ class UserSerializer(serializers.ModelSerializer):
     
     def get_has_patient_profile(self, obj):
         return hasattr(obj, 'patient_profile')
-
-
-class UserCreateSerializer(serializers.ModelSerializer):
-    """Serializer for user creation (LEGACY - kept for compatibility)"""
-    password = serializers.CharField(write_only=True, min_length=8)
-    password_confirm = serializers.CharField(write_only=True)
-    role = serializers.CharField(write_only=True, required=False)
-    
-    class Meta:
-        model = User
-        fields = [
-            'email', 'username', 'password', 'password_confirm',
-            'first_name', 'last_name', 'phone', 'role'
-        ]
-    
-    def validate(self, attrs):
-        """Validate passwords match"""
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError({
-                'password': 'Passwords do not match'
-            })
-        attrs.pop('password_confirm')
-        return attrs
-    
-    def create(self, validated_data):
-        """Create user and assign to group"""
-        role = validated_data.pop('role', None)
-        password = validated_data.pop('password')
-        
-        user = User.objects.create_user(
-            password=password,
-            **validated_data
-        )
-        
-        # Assign to group if role provided
-        if role:
-            try:
-                group = Group.objects.get(name=role)
-                user.groups.add(group)
-            except Group.DoesNotExist:
-                pass
-        
-        return user
 
 
 class LoginSerializer(serializers.Serializer):
@@ -215,7 +171,7 @@ class UserCreateWithProfileSerializer(serializers.ModelSerializer):
     Serializer for user creation with optional profile attachment
     
     Supports creating:
-    1. User only (no profile)
+    1. User only (no profile) - for staff roles
     2. User + Doctor Profile
     3. User + Patient Profile
     """

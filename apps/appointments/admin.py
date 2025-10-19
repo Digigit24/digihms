@@ -1,87 +1,178 @@
 from django.contrib import admin
+from django.utils.html import format_html
 from .models import Appointment, AppointmentType
+
+
+class AppointmentInline(admin.TabularInline):
+    """Inline admin for Follow-up Appointments"""
+    model = Appointment
+    extra = 0
+    readonly_fields = ['appointment_id', 'created_at', 'updated_at']
+    fk_name = 'original_appointment'
+    
+    def has_add_permission(self, request, obj=None):
+        """Restrict adding follow-ups directly"""
+        return request.user.is_superuser
 
 
 @admin.register(AppointmentType)
 class AppointmentTypeAdmin(admin.ModelAdmin):
-    """Admin configuration for AppointmentType"""
-    list_display = ['name', 'duration_default']
-    search_fields = ['name', 'description']
+    """Admin configuration for Appointment Types"""
+    list_display = [
+        'name', 
+        'description', 
+        'duration_default', 
+        'base_consultation_fee'
+    ]
     
-    def get_queryset(self, request):
-        """Optimize the queryset"""
-        return super().get_queryset(request)
+    search_fields = ['name', 'description']
+    list_filter = ['duration_default']
 
 
 @admin.register(Appointment)
 class AppointmentAdmin(admin.ModelAdmin):
-    """Admin configuration for Appointment"""
+    """Comprehensive Appointment Management in Admin"""
     list_display = [
-        'appointment_id', 'patient', 'doctor', 'appointment_date', 
-        'appointment_time', 'status', 'priority', 'is_paid'
-    ]
-    list_filter = [
-        'status', 'priority', 'is_paid', 
-        'is_follow_up', 'appointment_date',
-        ('doctor', admin.RelatedOnlyFieldListFilter),
-        ('patient', admin.RelatedOnlyFieldListFilter),
-    ]
-    search_fields = [
-        'appointment_id', 'patient__first_name', 
-        'patient__last_name', 'doctor__user__first_name', 
-        'doctor__user__last_name', 'chief_complaint'
+        'appointment_id', 
+        'patient_info', 
+        'doctor_info', 
+        'appointment_date', 
+        'appointment_time', 
+        'status_badge', 
+        'priority',
+        'consultation_fee'
     ]
     
+    list_filter = [
+        'status', 
+        'priority', 
+        'appointment_date', 
+        'doctor', 
+        'is_follow_up'
+    ]
+    
+    search_fields = [
+        'appointment_id', 
+        'patient__first_name', 
+        'patient__last_name', 
+        'doctor__user__first_name', 
+        'doctor__user__last_name',
+        'chief_complaint'
+    ]
+    
+    inlines = [AppointmentInline]
+    
     readonly_fields = [
-        'appointment_id', 'created_at', 'updated_at', 
-        'checked_in_at', 'actual_start_time', 'actual_end_time',
-        'waiting_time_minutes', 'cancelled_at'
+        'appointment_id', 
+        'checked_in_at', 
+        'actual_start_time', 
+        'actual_end_time', 
+        'waiting_time_minutes',
+        'created_at', 
+        'updated_at',
+        'cancelled_at',
+        'approved_at'
     ]
     
     fieldsets = (
-        ('Basic Information', {
+        ('Appointment Details', {
             'fields': (
-                'appointment_id', 'patient', 'doctor', 
-                'appointment_type', 'appointment_date', 
-                'appointment_time', 'end_time', 'duration_minutes'
+                'appointment_id', 
+                'patient', 
+                'doctor', 
+                'appointment_type',
+                'appointment_date', 
+                'appointment_time', 
+                'end_time',
+                'duration_minutes'
+            )
+        }),
+        ('Medical Information', {
+            'fields': (
+                'chief_complaint', 
+                'symptoms', 
+                'notes'
             )
         }),
         ('Status & Priority', {
             'fields': (
-                'status', 'priority', 'is_follow_up', 
+                'status', 
+                'priority',
+                'is_follow_up', 
                 'original_appointment'
-            )
-        }),
-        ('Medical Details', {
-            'fields': (
-                'chief_complaint', 'symptoms', 'notes'
             )
         }),
         ('Financial Details', {
             'fields': (
-                'consultation_fee', 'is_paid', 'payment_method'
+                'consultation_fee',
             )
         }),
         ('Timing Details', {
             'fields': (
-                'checked_in_at', 'actual_start_time', 
-                'actual_end_time', 'waiting_time_minutes'
+                'checked_in_at', 
+                'actual_start_time', 
+                'actual_end_time', 
+                'waiting_time_minutes'
             )
         }),
         ('Cancellation Details', {
             'fields': (
-                'cancelled_at', 'cancelled_by', 
+                'cancelled_at', 
+                'cancelled_by', 
                 'cancellation_reason'
             )
         }),
         ('Approval Details', {
             'fields': (
-                'approved_by', 'approved_at'
+                'approved_by', 
+                'approved_at'
             )
         }),
-        ('Creation Tracking', {
+        ('Timestamps', {
             'fields': (
-                'created_by', 'created_at', 'updated_at'
+                'created_at', 
+                'updated_at'
             )
-        })
+        }),
     )
+    
+    def patient_info(self, obj):
+        """Display patient information"""
+        if obj.patient:
+            return f"{obj.patient.full_name} ({obj.patient.mobile_primary})"
+        return "No Patient"
+    patient_info.short_description = "Patient"
+    
+    def doctor_info(self, obj):
+        """Display doctor information"""
+        if obj.doctor:
+            return f"Dr. {obj.doctor.user.get_full_name()}"
+        return "No Doctor"
+    doctor_info.short_description = "Doctor"
+    
+    def status_badge(self, obj):
+        """Colorful status representation"""
+        color_map = {
+            'scheduled': 'orange',
+            'confirmed': 'blue',
+            'checked_in': 'purple',
+            'in_progress': 'yellow',
+            'completed': 'green',
+            'cancelled': 'red',
+            'no_show': 'gray',
+            'rescheduled': 'pink'
+        }
+        color = color_map.get(obj.status, 'gray')
+        return format_html(
+            '<span style="color:{}; font-weight:bold;">{}</span>',
+            color,
+            obj.get_status_display()
+        )
+    status_badge.short_description = "Status"
+    
+    def get_queryset(self, request):
+        """Optimize queryset with select_related"""
+        return super().get_queryset(request).select_related(
+            'patient', 'doctor', 'appointment_type',
+            'created_by', 'cancelled_by', 'approved_by'
+        ).prefetch_related('follow_ups')

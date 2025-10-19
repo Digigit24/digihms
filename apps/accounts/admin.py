@@ -44,7 +44,6 @@ class DoctorProfileInline(admin.StackedInline):
     
     readonly_fields = ['average_rating', 'total_reviews', 'total_consultations']
     
-    # Only show this inline when user has Doctor group
     def has_add_permission(self, request, obj=None):
         if obj and obj.groups.filter(name='Doctor').exists():
             return not hasattr(obj, 'doctor_profile')
@@ -110,9 +109,8 @@ class PatientProfileInline(admin.StackedInline):
         }),
     )
     
-    readonly_fields = ['patient_id', 'age', 'bmi', 'registration_date', 'created_at', 'updated_at']
+    readonly_fields = ['patient_id', 'age', 'bmi', 'registration_date']
     
-    # Only show this inline when user has Patient group
     def has_add_permission(self, request, obj=None):
         if obj and obj.groups.filter(name='Patient').exists():
             return not hasattr(obj, 'patient_profile')
@@ -142,7 +140,6 @@ class UserAdmin(BaseUserAdmin):
     ]
     ordering = ['-created_at']
     
-    # Dynamic inlines based on user's role
     def get_inline_instances(self, request, obj=None):
         """Show appropriate profile inline based on user's role"""
         inline_instances = []

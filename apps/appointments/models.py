@@ -1,8 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
-import uuid
 from django.utils import timezone
+from decimal import Decimal
 
 
 class AppointmentType(models.Model):
@@ -10,6 +10,11 @@ class AppointmentType(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True, null=True)
     duration_default = models.PositiveIntegerField(default=15)  # Default duration in minutes
+    base_consultation_fee = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=Decimal('0.00')
+    )
     
     class Meta:
         db_table = 'appointment_types'
@@ -37,15 +42,6 @@ class Appointment(models.Model):
         NORMAL = 'normal', 'Normal'
         HIGH = 'high', 'High'
         URGENT = 'urgent', 'Urgent'
-
-    class PaymentMethodChoices(models.TextChoices):
-        CASH = 'cash', 'Cash'
-        CARD = 'card', 'Card'
-        UPI = 'upi', 'UPI'
-        NET_BANKING = 'net_banking', 'Net Banking'
-        ONLINE = 'online', 'Online'
-        INSURANCE = 'insurance', 'Insurance'
-        OTHER = 'other', 'Other'
 
     # Unique Identifiers
     id = models.BigAutoField(primary_key=True)
@@ -105,18 +101,11 @@ class Appointment(models.Model):
         related_name='follow_ups'
     )
 
-    # Financial Details
+    # Financial Details - Removed payment method
     consultation_fee = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0.00
-    )
-    is_paid = models.BooleanField(default=False)
-    payment_method = models.CharField(
-        max_length=20, 
-        choices=PaymentMethodChoices.choices, 
-        null=True, 
-        blank=True
+        default=Decimal('0.00')
     )
 
     # Timing and Check-in Details
@@ -164,7 +153,7 @@ class Appointment(models.Model):
         indexes = [
             models.Index(fields=['doctor', 'appointment_date', 'appointment_time']),
             models.Index(fields=['patient', 'appointment_date']),
-            models.Index(fields=['status', 'priority', 'is_paid']),
+            models.Index(fields=['status', 'priority']),
             models.Index(fields=['created_at', 'updated_at'])
         ]
         unique_together = [('doctor', 'appointment_date', 'appointment_time')]
@@ -189,6 +178,14 @@ class Appointment(models.Model):
 
             self.appointment_id = f'APT-{year}-{new_number:06d}'
 
+        # Auto-set consultation fee from appointment type
+        if not self.consultation_fee and self.appointment_type:
+            # Prefer doctor's consultation fee, fallback to appointment type's base fee
+            self.consultation_fee = (
+                self.doctor.consultation_fee if hasattr(self.doctor, 'consultation_fee') 
+                else self.appointment_type.base_consultation_fee
+            )
+
         # Auto-set end time if not provided
         if not self.end_time:
             from datetime import timedelta, datetime
@@ -208,9 +205,6 @@ class Appointment(models.Model):
 
         if self.is_follow_up and not self.original_appointment:
             raise ValidationError("Follow-up appointments must reference an original appointment")
-
-        if self.is_paid and (not self.consultation_fee or not self.payment_method):
-            raise ValidationError("Payment details are required for paid appointments")
 
         # Optional: Add more validation logic like time and duration checks
 

@@ -1,13 +1,13 @@
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, DjangoModelPermissions
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db.models import Q
 
-# ✅ Import drf-spectacular decorators
 from drf_spectacular.utils import (
     extend_schema, 
     extend_schema_view,
@@ -19,11 +19,9 @@ from drf_spectacular.utils import (
 from .serializers import (
     UserCreateWithProfileSerializer,
     UserSerializer,
-    UserCreateSerializer,
     LoginSerializer,
     ChangePasswordSerializer
 )
-from .permissions import IsAdministrator
 
 User = get_user_model()
 
@@ -127,16 +125,10 @@ class RegisterView(generics.CreateAPIView):
         ]
     )
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         
-        # Pass request context for created_by field
         user = serializer.save()
-        
-        # Set created_by for patient profile if exists
-        if hasattr(user, 'patient_profile') and request.user.is_authenticated:
-            user.patient_profile.created_by = request.user
-            user.patient_profile.save()
         
         # Generate token
         token, created = Token.objects.get_or_create(user=user)
@@ -337,7 +329,7 @@ class ChangePasswordView(generics.GenericAPIView):
 @extend_schema_view(
     list=extend_schema(
         summary="List users",
-        description="Get list of users (admins see all, others see only themselves)",
+        description="Get list of users (requires view_user permission)",
         parameters=[
             OpenApiParameter(
                 name='search',
@@ -345,32 +337,33 @@ class ChangePasswordView(generics.GenericAPIView):
                 description='Search by name, email, or username',
                 required=False
             ),
+            OpenApiParameter(
+                name='role',
+                type=str,
+                description='Filter by role/group name',
+                required=False
+            ),
         ],
         tags=['Users']
     ),
     retrieve=extend_schema(
         summary="Get user details",
-        description="Retrieve detailed information about a specific user",
-        tags=['Users']
-    ),
-    create=extend_schema(
-        summary="Create user",
-        description="Create a new user (Admin only)",
+        description="Retrieve detailed information about a specific user (requires view_user permission)",
         tags=['Users']
     ),
     update=extend_schema(
         summary="Update user",
-        description="Update user information (Admin or self)",
+        description="Update user information (requires change_user permission or self)",
         tags=['Users']
     ),
     partial_update=extend_schema(
         summary="Partial update user",
-        description="Partially update user information (Admin or self)",
+        description="Partially update user information (requires change_user permission or self)",
         tags=['Users']
     ),
     destroy=extend_schema(
         summary="Delete user",
-        description="Delete a user (Admin only)",
+        description="Delete a user (requires delete_user permission)",
         tags=['Users']
     ),
 )
@@ -378,29 +371,21 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     User Management
     
-    CRUD operations for user management.
-    - Admins can view and manage all users
-    - Regular users can only view and update their own profile
+    CRUD operations for user management using Django model permissions.
+    - Users with view_user permission can view users
+    - Users with change_user permission can update users (or update themselves)
+    - Users with delete_user permission can delete users
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    
-    def get_permissions(self):
-        """Custom permissions per action"""
-        if self.action in ['list', 'retrieve']:
-            return [IsAuthenticated()]
-        elif self.action in ['create', 'destroy']:
-            return [IsAdministrator()]
-        elif self.action in ['update', 'partial_update']:
-            return [IsAuthenticated()]
-        return [IsAuthenticated()]
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
     
     def get_queryset(self):
-        """Filter queryset based on user role"""
+        """Filter queryset based on permissions"""
         queryset = User.objects.all()
         
-        # Non-admins can only see themselves
-        if not self.request.user.groups.filter(name='Administrator').exists():
+        # Users without view_user permission can only see themselves
+        if not self.request.user.has_perm('accounts.view_user'):
             queryset = queryset.filter(id=self.request.user.id)
         
         # Search
@@ -413,7 +398,12 @@ class UserViewSet(viewsets.ModelViewSet):
                 Q(username__icontains=search)
             )
         
-        return queryset.order_by('-created_at')
+        # Filter by role (group)
+        role = self.request.query_params.get('role')
+        if role:
+            queryset = queryset.filter(groups__name=role)
+        
+        return queryset.distinct().order_by('-created_at')
     
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -437,24 +427,15 @@ class UserViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         })
     
-    def create(self, request, *args, **kwargs):
-        serializer = UserCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        
-        return Response({
-            'success': True,
-            'data': UserSerializer(user).data
-        }, status=status.HTTP_201_CREATED)
-    
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         
-        # Check permission - only admin or self
-        if instance != request.user and not request.user.groups.filter(
-            name='Administrator'
-        ).exists():
+        # Allow self-update even without change_user permission
+        has_perm = request.user.has_perm('accounts.change_user')
+        is_self = instance.id == request.user.id
+        
+        if not has_perm and not is_self:
             return Response({
                 'success': False,
                 'error': 'Permission denied'
@@ -483,10 +464,9 @@ class UserViewSet(viewsets.ModelViewSet):
         responses={200: OpenApiResponse(description="List of roles")},
         tags=['Users']
     )
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def roles(self, request):
         """Get available roles (groups)"""
-        from django.contrib.auth.models import Group
         groups = Group.objects.all()
         return Response({
             'success': True,
@@ -497,7 +477,7 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Assign role to user",
-        description="Assign a role (group) to user (Admin only)",
+        description="Assign a role (group) to user (requires change_user permission)",
         request={
             'application/json': {
                 'type': 'object',
@@ -515,8 +495,8 @@ class UserViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=['post'])
     def assign_role(self, request, pk=None):
-        """Assign role (add to group)"""
-        if not request.user.groups.filter(name='Administrator').exists():
+        """Assign role (add to group) - requires change_user permission"""
+        if not request.user.has_perm('accounts.change_user'):
             return Response({
                 'success': False,
                 'error': 'Permission denied'
@@ -532,7 +512,6 @@ class UserViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            from django.contrib.auth.models import Group
             group = Group.objects.get(name=role_name)
             user.groups.clear()  # Remove from all groups
             user.groups.add(group)  # Add to new group

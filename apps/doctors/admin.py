@@ -4,7 +4,8 @@ from .models import Specialty, DoctorProfile, DoctorAvailability
 
 @admin.register(Specialty)
 class SpecialtyAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'department', 'is_active', 'created_at']
+    """Admin for Medical Specialties"""
+    list_display = ['name', 'code', 'department', 'is_active', 'doctors_count', 'created_at']
     list_filter = ['is_active', 'department', 'created_at']
     search_fields = ['name', 'code', 'description']
     readonly_fields = ['created_at', 'updated_at']
@@ -22,9 +23,15 @@ class SpecialtyAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+    
+    def doctors_count(self, obj):
+        """Count of active doctors in this specialty"""
+        return obj.doctors.filter(status='active').count()
+    doctors_count.short_description = 'Active Doctors'
 
 
 class DoctorAvailabilityInline(admin.TabularInline):
+    """Inline admin for Doctor Availability"""
     model = DoctorAvailability
     extra = 1
     fields = ['day_of_week', 'start_time', 'end_time', 'is_available', 'max_appointments']
@@ -32,6 +39,7 @@ class DoctorAvailabilityInline(admin.TabularInline):
 
 @admin.register(DoctorProfile)
 class DoctorProfileAdmin(admin.ModelAdmin):
+    """Admin for Doctor Profiles"""
     list_display = [
         'get_doctor_name', 'medical_license_number', 'status',
         'consultation_fee', 'years_of_experience', 'average_rating',
@@ -52,23 +60,25 @@ class DoctorProfileAdmin(admin.ModelAdmin):
     filter_horizontal = ['specialties']
     inlines = [DoctorAvailabilityInline]
     ordering = ['-created_at']
+    date_hierarchy = 'created_at'
     
     fieldsets = (
         ('User Information', {
-            'fields': ('user',)
+            'fields': ('user',),
+            'description': 'Link to user account (required for login)'
         }),
-        ('Professional Information', {
+        ('License Information', {
             'fields': (
                 'medical_license_number', 'license_issuing_authority',
-                'license_issue_date', 'license_expiry_date'
+                'license_issue_date', 'license_expiry_date', 'is_license_valid'
             )
         }),
-        ('Qualifications & Experience', {
+        ('Professional Information', {
             'fields': (
                 'qualifications', 'specialties', 'years_of_experience'
             )
         }),
-        ('Consultation Details', {
+        ('Consultation Settings', {
             'fields': (
                 'consultation_fee', 'consultation_duration',
                 'is_available_online', 'is_available_offline'
@@ -78,7 +88,8 @@ class DoctorProfileAdmin(admin.ModelAdmin):
             'fields': (
                 'average_rating', 'total_reviews', 'total_consultations'
             ),
-            'classes': ('collapse',)
+            'classes': ('collapse',),
+            'description': 'Read-only statistics updated by the system'
         }),
         ('Additional Information', {
             'fields': ('signature', 'languages_spoken', 'status')
@@ -90,11 +101,15 @@ class DoctorProfileAdmin(admin.ModelAdmin):
     )
     
     def get_doctor_name(self, obj):
-        return f"Dr. {obj.user.get_full_name()}"
+        """Display doctor's full name"""
+        if obj.full_name:
+            return f"Dr. {obj.full_name}"
+        return f"Dr. {obj.user.email}"
     get_doctor_name.short_description = 'Doctor Name'
     get_doctor_name.admin_order_field = 'user__first_name'
     
     def is_license_valid(self, obj):
+        """Display license validity status"""
         return obj.is_license_valid
     is_license_valid.boolean = True
     is_license_valid.short_description = 'License Valid'
@@ -102,17 +117,19 @@ class DoctorProfileAdmin(admin.ModelAdmin):
 
 @admin.register(DoctorAvailability)
 class DoctorAvailabilityAdmin(admin.ModelAdmin):
+    """Admin for Doctor Availability"""
     list_display = [
         'doctor', 'day_of_week', 'start_time', 'end_time',
-        'is_available', 'max_appointments'
+        'is_available', 'max_appointments', 'created_at'
     ]
-    list_filter = ['day_of_week', 'is_available', 'doctor__status']
+    list_filter = ['day_of_week', 'is_available', 'doctor__status', 'created_at']
     search_fields = [
         'doctor__user__first_name', 'doctor__user__last_name',
         'doctor__medical_license_number'
     ]
     readonly_fields = ['created_at', 'updated_at']
     ordering = ['doctor', 'day_of_week', 'start_time']
+    date_hierarchy = 'created_at'
     
     fieldsets = (
         ('Doctor', {

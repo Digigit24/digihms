@@ -5,7 +5,7 @@ from django.db import models
 class User(AbstractUser):
     """
     Custom user model - Role is determined by Group membership.
-    DO NOT add role field.
+    DO NOT add role field - use groups instead.
     """
     
     # Contact Information
@@ -42,7 +42,7 @@ class User(AbstractUser):
     )
     bio = models.TextField(blank=True, null=True)
     
-    # Hospital-specific
+    # Hospital-specific (optional fields)
     employee_id = models.CharField(
         max_length=20,
         unique=True,
@@ -61,7 +61,7 @@ class User(AbstractUser):
     updated_at = models.DateTimeField(auto_now=True)
     
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
+    REQUIRED_FIELDS = ['username']
     
     class Meta:
         db_table = 'users'
@@ -71,13 +71,18 @@ class User(AbstractUser):
             ("view_all_users", "Can view all users"),
             ("manage_staff", "Can manage staff members"),
         ]
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['username']),
+            models.Index(fields=['employee_id']),
+        ]
     
     def __str__(self):
-        return f"{self.get_full_name()} ({self.email})"
+        return f"{self.get_full_name()} ({self.email})" if self.get_full_name() else self.email
     
     @property
     def role(self):
-        """Returns primary role based on group membership"""
+        """Returns primary role based on group membership (for display only)"""
         groups = self.groups.values_list('name', flat=True)
         role_priority = [
             'Administrator',

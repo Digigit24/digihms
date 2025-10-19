@@ -1,5 +1,3 @@
-# apps/doctors/views.py
-
 from django.db.models import Avg
 from django.utils.timezone import now
 
@@ -10,7 +8,6 @@ from rest_framework.permissions import IsAuthenticated, DjangoModelPermissions
 
 from django_filters.rest_framework import DjangoFilterBackend
 
-# drf-spectacular
 from drf_spectacular.utils import (
     extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample, OpenApiResponse
 )
@@ -26,13 +23,14 @@ from .serializers import (
 )
 
 
-# -----------------------------
-# Specialties
-# -----------------------------
+# =============================================================================
+# SPECIALTIES VIEWSET
+# =============================================================================
+
 @extend_schema_view(
     list=extend_schema(
         summary="List specialties",
-        description="Get list of all medical specialties (requires view permission).",
+        description="Get list of all medical specialties (requires view_specialty permission).",
         parameters=[
             OpenApiParameter(name='is_active', type=bool, description='Filter by active status'),
             OpenApiParameter(name='department', type=str, description='Filter by department'),
@@ -42,27 +40,27 @@ from .serializers import (
     ),
     retrieve=extend_schema(
         summary="Get specialty details",
-        description="Retrieve a specialty by ID (requires view permission).",
+        description="Retrieve a specialty by ID (requires view_specialty permission).",
         tags=['Specialties'],
     ),
     create=extend_schema(
         summary="Create specialty",
-        description="Create a new medical specialty (requires add permission).",
+        description="Create a new medical specialty (requires add_specialty permission).",
         tags=['Specialties'],
     ),
     update=extend_schema(
         summary="Update specialty",
-        description="Update a medical specialty (requires change permission).",
+        description="Update a medical specialty (requires change_specialty permission).",
         tags=['Specialties'],
     ),
     partial_update=extend_schema(
         summary="Partial update specialty",
-        description="Partially update a medical specialty (requires change permission).",
+        description="Partially update a medical specialty (requires change_specialty permission).",
         tags=['Specialties'],
     ),
     destroy=extend_schema(
         summary="Delete specialty",
-        description="Delete a medical specialty (requires delete permission). "
+        description="Delete a medical specialty (requires delete_specialty permission). "
                     "Deletion is blocked if the specialty has active doctors.",
         tags=['Specialties'],
     ),
@@ -70,20 +68,13 @@ from .serializers import (
 class SpecialtyViewSet(viewsets.ModelViewSet):
     """
     Medical Specialties Management
-
-    Uses Django model permissions:
-    - GET    list/retrieve  -> view_specialty
-    - POST   create         -> add_specialty
-    - PUT/PATCH update      -> change_specialty
-    - DELETE destroy        -> delete_specialty
+    
+    Uses Django model permissions for access control.
     """
     queryset = Specialty.objects.all()
     serializer_class = SpecialtySerializer
-
-    # Auth + built-in model permissions only
     permission_classes = [IsAuthenticated, DjangoModelPermissions]
 
-    # Filtering / search / ordering
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['is_active', 'department']
     search_fields = ['name', 'code', 'description']
@@ -91,62 +82,81 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
     ordering = ['name']
 
     def list(self, request, *args, **kwargs):
-        qs = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(qs)
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        
         if page is not None:
-            ser = self.get_serializer(page, many=True)
-            return self.get_paginated_response(ser.data)
-        ser = self.get_serializer(qs, many=True)
-        return Response({'success': True, 'data': ser.data})
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({'success': True, 'data': serializer.data})
 
     def retrieve(self, request, *args, **kwargs):
-        inst = self.get_object()
-        ser = self.get_serializer(inst)
-        return Response({'success': True, 'data': ser.data})
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({'success': True, 'data': serializer.data})
 
     def create(self, request, *args, **kwargs):
-        ser = self.get_serializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        self.perform_create(ser)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
         return Response(
-            {'success': True, 'message': 'Specialty created successfully', 'data': ser.data},
+            {
+                'success': True,
+                'message': 'Specialty created successfully',
+                'data': serializer.data
+            },
             status=status.HTTP_201_CREATED,
         )
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
-        inst = self.get_object()
-        ser = self.get_serializer(inst, data=request.data, partial=partial)
-        ser.is_valid(raise_exception=True)
-        self.perform_update(ser)
-        return Response({'success': True, 'message': 'Specialty updated successfully', 'data': ser.data})
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'success': True,
+            'message': 'Specialty updated successfully',
+            'data': serializer.data
+        })
 
     def destroy(self, request, *args, **kwargs):
-        inst = self.get_object()
+        instance = self.get_object()
+        
         # Business rule: prevent delete if specialty has active doctors
-        if inst.doctors.filter(status='active').exists():
+        if instance.doctors.filter(status='active').exists():
             return Response(
-                {'success': False, 'error': 'Cannot delete specialty with active doctors'},
+                {
+                    'success': False,
+                    'error': 'Cannot delete specialty with active doctors'
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        self.perform_destroy(inst)
+        
+        self.perform_destroy(instance)
         return Response(
             {'success': True, 'message': 'Specialty deleted successfully'},
             status=status.HTTP_204_NO_CONTENT,
         )
 
 
-# -----------------------------
-# Doctor Profiles
-# -----------------------------
+# =============================================================================
+# DOCTOR PROFILES VIEWSET
+# =============================================================================
+
 @extend_schema_view(
     list=extend_schema(
         summary="List doctors",
-        description="List doctor profiles (requires view permission).",
+        description="List doctor profiles (requires view_doctorprofile permission).",
         parameters=[
             OpenApiParameter(name='specialty', type=str, description='Filter by specialty name (icontains)'),
-            OpenApiParameter(name='available', type=bool, description='Filter active doctors'),
-            OpenApiParameter(name='city', type=str, description='Filter by user.city (if present on User model)'),
+            OpenApiParameter(name='status', type=str, description='Filter by status (active, on_leave, inactive)'),
+            OpenApiParameter(name='available', type=bool, description='Filter active doctors only'),
+            OpenApiParameter(name='city', type=str, description='Filter by user city'),
             OpenApiParameter(name='min_rating', type=float, description='Minimum average rating'),
             OpenApiParameter(name='min_fee', type=float, description='Minimum consultation fee'),
             OpenApiParameter(name='max_fee', type=float, description='Maximum consultation fee'),
@@ -156,15 +166,15 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
     ),
     retrieve=extend_schema(
         summary="Get doctor details",
-        description="Retrieve a doctor profile by ID (requires view permission).",
+        description="Retrieve a doctor profile by ID (requires view_doctorprofile permission).",
         tags=['Doctors'],
     ),
     create=extend_schema(
         summary="Create doctor profile",
-        description="Create a doctor profile (requires add permission). Can create with existing user_id OR with new user_data.",
+        description="Create a doctor profile (requires add_doctorprofile permission).",
         examples=[
             OpenApiExample(
-                'With Existing User',
+                'Doctor Profile Creation',
                 value={
                     'user_id': 2,
                     'medical_license_number': 'MED123456',
@@ -177,32 +187,9 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
                     'consultation_fee': 500.00,
                     'consultation_duration': 30,
                     'status': 'active',
-                },
-                request_only=True,
-            ),
-            OpenApiExample(
-                'With New User',
-                value={
-                    'user_data': {
-                        'username': 'dr.john',
-                        'email': 'dr.john@hospital.com',
-                        'password': 'SecurePass123',
-                        'first_name': 'John',
-                        'last_name': 'Doe',
-                        'phone': '1234567890',
-                        'city': 'Mumbai',
-                        'state': 'Maharashtra'
-                    },
-                    'medical_license_number': 'MED123456',
-                    'license_issuing_authority': 'Medical Council of India',
-                    'license_issue_date': '2020-01-01',
-                    'license_expiry_date': '2030-01-01',
-                    'qualifications': 'MBBS, MD',
-                    'specialty_ids': [1, 2],
-                    'years_of_experience': 5,
-                    'consultation_fee': 500.00,
-                    'consultation_duration': 30,
-                    'status': 'active',
+                    'is_available_online': True,
+                    'is_available_offline': True,
+                    'languages_spoken': 'English, Hindi, Marathi'
                 },
                 request_only=True,
             ),
@@ -211,56 +198,38 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
     ),
     update=extend_schema(
         summary="Update doctor profile",
-        description="Update doctor profile (requires change permission, or will be allowed if the requester is the owner).",
+        description="Update doctor profile (requires change_doctorprofile permission, or owner can edit).",
         tags=['Doctors'],
     ),
     partial_update=extend_schema(
         summary="Partial update doctor profile",
-        description="Partially update doctor profile (requires change permission, or will be allowed if the requester is the owner).",
+        description="Partially update doctor profile (requires change_doctorprofile permission, or owner can edit).",
         tags=['Doctors'],
     ),
     destroy=extend_schema(
         summary="Deactivate doctor profile",
-        description="Soft delete (set status=inactive). Requires delete permission.",
+        description="Soft delete - set status to inactive (requires delete_doctorprofile permission).",
         tags=['Doctors'],
     ),
 )
 class DoctorProfileViewSet(viewsets.ModelViewSet):
     """
     Doctor Profile Management
-
-    Uses Django model permissions:
-    - GET    list/retrieve  -> view_doctorprofile
-    - POST   create         -> add_doctorprofile
-    - PUT/PATCH update      -> change_doctorprofile (or owner shortcut)
-    - DELETE destroy        -> delete_doctorprofile (soft-delete implemented)
-
-    Notes:
-    - We include an 'owner shortcut' for update/partial_update: if the requester is the linked user,
-      we allow the change even if they don't hold the global change permission. This keeps a practical
-      "self can edit" rule without any custom permission classes.
-    - For other custom actions we check built-in perms by codename.
-    - Can create doctor profile with existing user_id OR by providing user_data to create new user.
+    
+    Uses Django model permissions with owner shortcuts:
+    - Doctors can view/edit their own profile without global permissions
+    - Others need appropriate model permissions
     """
-
-    queryset = (
-        DoctorProfile.objects.select_related('user')
-        .prefetch_related('specialties', 'availability')
-        .all()
-    )
-
-    # Auth + built-in model permissions only
+    queryset = DoctorProfile.objects.select_related('user').prefetch_related(
+        'specialties', 'availability'
+    ).all()
     permission_classes = [IsAuthenticated, DjangoModelPermissions]
 
-    # Filtering / search / ordering
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'is_available_online', 'is_available_offline']
     search_fields = [
-        'user__first_name',
-        'user__last_name',
-        'user__email',
-        'medical_license_number',
-        'qualifications',
+        'user__first_name', 'user__last_name', 'user__email',
+        'medical_license_number', 'qualifications',
     ]
     ordering_fields = ['created_at', 'consultation_fee', 'average_rating', 'years_of_experience']
     ordering = ['-created_at']
@@ -272,64 +241,75 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
             return DoctorProfileCreateUpdateSerializer
         return DoctorProfileDetailSerializer
 
-    # ---- Queryset filtering by query params (pure business logic, not permissions) ----
     def get_queryset(self):
-        qs = super().get_queryset()
+        """Filter queryset by query params"""
+        queryset = super().get_queryset()
         params = self.request.query_params
 
+        # Filter by specialty
         specialty = params.get('specialty')
         if specialty:
-            qs = qs.filter(specialties__name__icontains=specialty)
+            queryset = queryset.filter(specialties__name__icontains=specialty)
 
+        # Filter by available (active status)
         available = params.get('available')
         if available and available.lower() == 'true':
-            qs = qs.filter(status='active')
+            queryset = queryset.filter(status='active')
 
-        city = params.get('city')  # only works if your User model has a 'city' field
+        # Filter by city (from user)
+        city = params.get('city')
         if city:
-            qs = qs.filter(user__city__icontains=city)
+            queryset = queryset.filter(user__city__icontains=city)
 
+        # Filter by rating
         min_rating = params.get('min_rating')
         if min_rating:
             try:
-                qs = qs.filter(average_rating__gte=float(min_rating))
+                queryset = queryset.filter(average_rating__gte=float(min_rating))
             except ValueError:
                 pass
 
+        # Filter by fee range
         min_fee = params.get('min_fee')
         max_fee = params.get('max_fee')
         if min_fee:
             try:
-                qs = qs.filter(consultation_fee__gte=float(min_fee))
+                queryset = queryset.filter(consultation_fee__gte=float(min_fee))
             except ValueError:
                 pass
         if max_fee:
             try:
-                qs = qs.filter(consultation_fee__lte=float(max_fee))
+                queryset = queryset.filter(consultation_fee__lte=float(max_fee))
             except ValueError:
                 pass
 
-        return qs.distinct()
+        return queryset.distinct()
 
-    # ---- Standard actions with consistent API envelopes ----
+    def _is_owner(self, request, instance):
+        """Check if request user is the owner of the profile"""
+        return instance.user_id == request.user.id
+
     def list(self, request, *args, **kwargs):
-        qs = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(qs)
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        
         if page is not None:
-            ser = self.get_serializer(page, many=True)
-            return self.get_paginated_response(ser.data)
-        ser = self.get_serializer(qs, many=True)
-        return Response({'success': True, 'data': ser.data})
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({'success': True, 'data': serializer.data})
 
     def retrieve(self, request, *args, **kwargs):
-        inst = self.get_object()
-        ser = self.get_serializer(inst)
-        return Response({'success': True, 'data': ser.data})
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({'success': True, 'data': serializer.data})
 
     def create(self, request, *args, **kwargs):
-        ser = self.get_serializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        doctor = ser.save()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        doctor = serializer.save()
+        
         return Response(
             {
                 'success': True,
@@ -339,73 +319,68 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
-    def _is_owner(self, request, instance: DoctorProfile) -> bool:
-        return instance.user_id == getattr(request.user, 'id', None)
-
     def update(self, request, *args, **kwargs):
-        """
-        Allow update if:
-        - user has global change permission for DoctorProfile, OR
-        - user is the owner of this DoctorProfile (owner shortcut).
-        """
+        """Allow update if user has permission OR is the owner"""
         partial = kwargs.pop('partial', False)
-        inst = self.get_object()
+        instance = self.get_object()
 
-        # Check global change permission
-        app_label = inst._meta.app_label
-        change_perm = f'{app_label}.change_{inst._meta.model_name}'
-        if not request.user.has_perm(change_perm) and not self._is_owner(request, inst):
-            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        # Check permission: has change permission OR is owner
+        has_perm = request.user.has_perm('doctors.change_doctorprofile')
+        is_owner = self._is_owner(request, instance)
 
-        ser = self.get_serializer(inst, data=request.data, partial=partial)
-        ser.is_valid(raise_exception=True)
-        doctor = ser.save()
-        return Response(
-            {'success': True, 'message': 'Doctor profile updated successfully',
-             'data': DoctorProfileDetailSerializer(doctor).data}
-        )
+        if not has_perm and not is_owner:
+            return Response(
+                {'success': False, 'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-    def partial_update(self, request, *args, **kwargs):
-        kwargs['partial'] = True
-        return self.update(request, *args, **kwargs)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        doctor = serializer.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Doctor profile updated successfully',
+            'data': DoctorProfileDetailSerializer(doctor).data
+        })
 
     def destroy(self, request, *args, **kwargs):
-        """
-        Soft-delete: requires delete permission on DoctorProfile.
-        """
-        inst = self.get_object()
-        app_label = inst._meta.app_label
-        delete_perm = f'{app_label}.delete_{inst._meta.model_name}'
-        if not request.user.has_perm(delete_perm):
-            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        """Soft delete - set status to inactive"""
+        instance = self.get_object()
+        instance.status = 'inactive'
+        instance.save(update_fields=['status'])
+        
+        return Response(
+            {'success': True, 'message': 'Doctor profile deactivated successfully'},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
-        inst.status = 'inactive'
-        inst.save(update_fields=['status'])
-        return Response({'success': True, 'message': 'Doctor profile deactivated successfully'},
-                        status=status.HTTP_204_NO_CONTENT)
+    # =========================================================================
+    # CUSTOM ACTIONS
+    # =========================================================================
 
-    # ---- Extra actions ----
     @extend_schema(
         summary="Get doctor availability",
-        description="Get weekly availability for a doctor (requires view_doctoravailability OR view_doctorprofile).",
+        description="Get weekly availability for a doctor.",
         responses={200: DoctorAvailabilitySerializer(many=True)},
         tags=['Doctors'],
     )
     @action(detail=True, methods=['get'])
     def availability(self, request, pk=None):
+        """Get doctor's availability schedule"""
         doctor = self.get_object()
-        avail = doctor.availability.all()
-        ser = DoctorAvailabilitySerializer(avail, many=True)
-        return Response({'success': True, 'data': ser.data})
+        availability = doctor.availability.all()
+        serializer = DoctorAvailabilitySerializer(availability, many=True)
+        return Response({'success': True, 'data': serializer.data})
 
     @extend_schema(
         summary="Add availability slot",
-        description=(
-            "Add a new availability slot. Requires add_doctoravailability. "
-            "If the requester is the owner of the profile, owner shortcut also allows it."
-        ),
+        description="Add a new availability slot (requires add_doctoravailability permission or owner).",
         request=DoctorAvailabilityCreateUpdateSerializer,
-        responses={201: DoctorAvailabilitySerializer, 403: OpenApiResponse(description="Permission denied")},
+        responses={
+            201: DoctorAvailabilitySerializer,
+            403: OpenApiResponse(description="Permission denied")
+        },
         examples=[
             OpenApiExample(
                 'Availability Example',
@@ -423,36 +398,50 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=['post'])
     def set_availability(self, request, pk=None):
+        """Add availability slot"""
         doctor = self.get_object()
 
-        # Permission check: built-in add permission OR owner shortcut
-        app_label = DoctorAvailability._meta.app_label
-        add_perm = f'{app_label}.add_{DoctorAvailability._meta.model_name}'
-        if not (request.user.has_perm(add_perm) or self._is_owner(request, doctor)):
-            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        # Check permission: has add permission OR is owner
+        has_perm = request.user.has_perm('doctors.add_doctoravailability')
+        is_owner = self._is_owner(request, doctor)
 
-        ser = DoctorAvailabilityCreateUpdateSerializer(data=request.data)
-        if ser.is_valid():
-            ser.save(doctor=doctor)
+        if not has_perm and not is_owner:
             return Response(
-                {'success': True, 'message': 'Availability added successfully', 'data': ser.data},
+                {'success': False, 'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = DoctorAvailabilityCreateUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(doctor=doctor)
+            return Response(
+                {
+                    'success': True,
+                    'message': 'Availability added successfully',
+                    'data': serializer.data
+                },
                 status=status.HTTP_201_CREATED,
             )
-        return Response({'success': False, 'errors': ser.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {'success': False, 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     @extend_schema(
-        summary="Statistics",
-        description="Basic doctor statistics. Requires view_doctorprofile.",
+        summary="Doctor statistics",
+        description="Basic doctor statistics (requires view_doctorprofile permission).",
         responses={200: OpenApiResponse(description="Statistics object")},
         tags=['Doctors'],
     )
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        # Require 'view' permission on DoctorProfile to access stats
-        app_label = DoctorProfile._meta.app_label
-        view_perm = f'{app_label}.view_{DoctorProfile._meta.model_name}'
-        if not request.user.has_perm(view_perm):
-            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        """Get doctor statistics"""
+        # Require view permission
+        if not request.user.has_perm('doctors.view_doctorprofile'):
+            return Response(
+                {'success': False, 'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         total = DoctorProfile.objects.count()
         active = DoctorProfile.objects.filter(status='active').count()
@@ -481,21 +470,24 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Activate doctor profile",
-        description="Activate a doctor profile. Requires change_doctorprofile.",
+        description="Activate a doctor profile (requires change_doctorprofile permission).",
         request=None,
         responses={200: DoctorProfileDetailSerializer},
         tags=['Doctors'],
     )
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
-        doctor = self.get_object()
-        app_label = doctor._meta.app_label
-        change_perm = f'{app_label}.change_{doctor._meta.model_name}'
-        if not request.user.has_perm(change_perm):
-            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        """Activate doctor profile"""
+        if not request.user.has_perm('doctors.change_doctorprofile'):
+            return Response(
+                {'success': False, 'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+        doctor = self.get_object()
         doctor.status = 'active'
         doctor.save(update_fields=['status'])
+        
         return Response({
             'success': True,
             'message': 'Doctor profile activated successfully',
@@ -504,21 +496,26 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Deactivate doctor profile",
-        description="Deactivate a doctor profile. Requires change_doctorprofile.",
+        description="Deactivate a doctor profile (requires change_doctorprofile permission).",
         request=None,
         responses={200: DoctorProfileDetailSerializer},
         tags=['Doctors'],
     )
     @action(detail=True, methods=['post'])
     def deactivate(self, request, pk=None):
-        doctor = self.get_object()
-        app_label = doctor._meta.app_label
-        change_perm = f'{app_label}.change_{doctor._meta.model_name}'
-        if not request.user.has_perm(change_perm):
-            return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        """Deactivate doctor profile"""
+        if not request.user.has_perm('doctors.change_doctorprofile'):
+            return Response(
+                {'success': False, 'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+        doctor = self.get_object()
+
+        
         doctor.status = 'inactive'
         doctor.save(update_fields=['status'])
+        
         return Response({
             'success': True,
             'message': 'Doctor profile deactivated successfully',

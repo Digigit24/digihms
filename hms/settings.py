@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'drf_spectacular',
+    'import_export',
 
     # Local
     'apps.accounts',
@@ -77,6 +78,10 @@ INSTALLED_APPS = [
     'apps.patients',
     'apps.hospital',
     'apps.appointments',
+    'apps.orders',
+    'apps.payments',
+    'apps.pharmacy',
+    'apps.services',
 ]
 
 # --- Middleware ---

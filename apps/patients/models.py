@@ -58,9 +58,9 @@ class PatientProfile(models.Model):
     
     # Personal Info (required for walk-ins)
     first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100,null=True, blank=True)
     middle_name = models.CharField(max_length=100, blank=True, null=True)
-    date_of_birth = models.DateField()
+    date_of_birth = models.DateField(null=True, blank=True)
     age = models.PositiveIntegerField(editable=False)
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
     
@@ -78,12 +78,12 @@ class PatientProfile(models.Model):
     email = models.EmailField(blank=True, null=True)
     
     # Address
-    address_line1 = models.CharField(max_length=200)
+    address_line1 = models.CharField(max_length=200,null=True, blank=True)
     address_line2 = models.CharField(max_length=200, blank=True, null=True)
-    city = models.CharField(max_length=100)
-    state = models.CharField(max_length=100)
+    city = models.CharField(max_length=100, null=True, blank=True)
+    state = models.CharField(max_length=100,null=True, blank=True)
     country = models.CharField(max_length=100, default='India')
-    pincode = models.CharField(max_length=10)
+    pincode = models.CharField(max_length=10, null=True, blank=True)
     
     # Medical Info
     blood_group = models.CharField(
@@ -118,17 +118,21 @@ class PatientProfile(models.Model):
     marital_status = models.CharField(
         max_length=20, 
         choices=MARITAL_STATUS_CHOICES, 
-        default='single'
+        default='single',
+        null=True, 
+        blank=True
     )
     occupation = models.CharField(max_length=100, blank=True, null=True)
     
     # Emergency Contact
-    emergency_contact_name = models.CharField(max_length=100)
+    emergency_contact_name = models.CharField(max_length=100, null=True, blank=True)
     emergency_contact_phone = models.CharField(
         max_length=15,
-        validators=[phone_regex]
+        validators=[phone_regex],
+        null=True, 
+        blank=True
     )
-    emergency_contact_relation = models.CharField(max_length=50)
+    emergency_contact_relation = models.CharField(max_length=50, null=True, blank=True)
     
     # Insurance
     insurance_provider = models.CharField(

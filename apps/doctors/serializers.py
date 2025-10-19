@@ -12,15 +12,23 @@ class SpecialtySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Specialty
-        fields = '__all__'
+        fields = [
+            'id', 'name', 'code', 'description', 'department',
+            'is_active', 'doctors_count', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_doctors_count(self, obj):
+        """Count active doctors in this specialty"""
         return obj.doctors.filter(status='active').count()
 
 
 class DoctorAvailabilitySerializer(serializers.ModelSerializer):
     """Doctor availability serializer"""
-    day_display = serializers.CharField(source='get_day_of_week_display', read_only=True)
+    day_display = serializers.CharField(
+        source='get_day_of_week_display',
+        read_only=True
+    )
     
     class Meta:
         model = DoctorAvailability
@@ -31,21 +39,43 @@ class DoctorAvailabilitySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class DoctorAvailabilityCreateUpdateSerializer(serializers.ModelSerializer):
+    """Create/Update serializer for doctor availability"""
+    
+    class Meta:
+        model = DoctorAvailability
+        exclude = ['doctor', 'created_at', 'updated_at']
+    
+    def validate(self, attrs):
+        """Validate time range"""
+        start_time = attrs.get('start_time')
+        end_time = attrs.get('end_time')
+        
+        if start_time and end_time:
+            if start_time >= end_time:
+                raise serializers.ValidationError({
+                    'end_time': 'End time must be after start time'
+                })
+        
+        return attrs
+
+
 class DoctorProfileListSerializer(serializers.ModelSerializer):
     """List view serializer for doctors - minimal fields"""
     user = UserSerializer(read_only=True)
     specialties = SpecialtySerializer(many=True, read_only=True)
     is_license_valid = serializers.ReadOnlyField()
+    full_name = serializers.ReadOnlyField()
     
     class Meta:
         model = DoctorProfile
         fields = [
-            'id', 'user', 'medical_license_number',
+            'id', 'user', 'full_name', 'medical_license_number',
             'qualifications', 'specialties', 'years_of_experience',
             'consultation_fee', 'consultation_duration',
             'is_available_online', 'is_available_offline',
             'average_rating', 'total_reviews', 'total_consultations',
-            'status', 'is_license_valid'
+            'status', 'is_license_valid', 'created_at'
         ]
 
 
@@ -55,6 +85,7 @@ class DoctorProfileDetailSerializer(serializers.ModelSerializer):
     specialties = SpecialtySerializer(many=True, read_only=True)
     availability = DoctorAvailabilitySerializer(many=True, read_only=True)
     is_license_valid = serializers.ReadOnlyField()
+    full_name = serializers.ReadOnlyField()
     
     class Meta:
         model = DoctorProfile
@@ -63,17 +94,20 @@ class DoctorProfileDetailSerializer(serializers.ModelSerializer):
 
 class DoctorProfileCreateUpdateSerializer(serializers.ModelSerializer):
     """Create/Update serializer for doctors"""
-    user_id = serializers.IntegerField(write_only=True)
+    user_id = serializers.IntegerField(write_only=True, required=True)
     specialty_ids = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
-        required=False
+        required=False,
+        allow_empty=True
     )
     
     class Meta:
         model = DoctorProfile
-        exclude = ['user', 'average_rating', 'total_reviews', 
-                   'total_consultations', 'specialties']
+        exclude = [
+            'user', 'average_rating', 'total_reviews',
+            'total_consultations', 'specialties', 'created_at', 'updated_at'
+        ]
     
     def validate_user_id(self, value):
         """Validate user exists and doesn't have doctor profile"""
@@ -90,7 +124,7 @@ class DoctorProfileCreateUpdateSerializer(serializers.ModelSerializer):
                 # Check if user is in Doctor group
                 if not user.groups.filter(name='Doctor').exists():
                     raise serializers.ValidationError(
-                        'User must be in Doctor group'
+                        'User must be in Doctor group to create doctor profile'
                     )
             
             return value
@@ -98,21 +132,39 @@ class DoctorProfileCreateUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('User not found')
     
     def validate_license_expiry_date(self, value):
-        """Ensure license expiry date is in the future"""
+        """Ensure license expiry date is in the future or today"""
         import datetime
-        if value <= datetime.date.today():
+        if value and value < datetime.date.today():
             raise serializers.ValidationError(
-                'License expiry date must be in the future'
+                'License expiry date must be today or in the future'
+            )
+        return value
+    
+    def validate_consultation_fee(self, value):
+        """Validate consultation fee"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Consultation fee cannot be negative')
+        return value
+    
+    def validate_consultation_duration(self, value):
+        """Validate consultation duration"""
+        if value and value < 5:
+            raise serializers.ValidationError(
+                'Consultation duration must be at least 5 minutes'
             )
         return value
     
     def validate(self, attrs):
-        """Validate license dates"""
-        issue_date = attrs.get('license_issue_date')
-        expiry_date = attrs.get('license_expiry_date')
+        """Cross-field validation"""
+        issue_date = attrs.get('license_issue_date') or (
+            self.instance.license_issue_date if self.instance else None
+        )
+        expiry_date = attrs.get('license_expiry_date') or (
+            self.instance.license_expiry_date if self.instance else None
+        )
         
         if issue_date and expiry_date:
-            if issue_date >= expiry_date:
+            if expiry_date < issue_date:
                 raise serializers.ValidationError({
                     'license_expiry_date': 'Expiry date must be after issue date'
                 })
@@ -152,24 +204,3 @@ class DoctorProfileCreateUpdateSerializer(serializers.ModelSerializer):
             instance.specialties.set(specialties)
         
         return instance
-
-
-class DoctorAvailabilityCreateUpdateSerializer(serializers.ModelSerializer):
-    """Create/Update serializer for doctor availability"""
-    
-    class Meta:
-        model = DoctorAvailability
-        exclude = ['doctor']
-    
-    def validate(self, attrs):
-        """Validate time range"""
-        start_time = attrs.get('start_time')
-        end_time = attrs.get('end_time')
-        
-        if start_time and end_time:
-            if start_time >= end_time:
-                raise serializers.ValidationError({
-                    'end_time': 'End time must be after start time'
-                })
-        
-        return attrs

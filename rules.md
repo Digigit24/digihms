@@ -178,24 +178,7 @@ class Meta:
 ## 🔐 Permissions & Access Control
 
 ### Permission Classes Pattern
-```python
-from apps.accounts.permissions import (
-    IsAdministrator,
-    IsDoctor,
-    IsPatient
-)
-
-class YourViewSet(viewsets.ModelViewSet):
-    def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
-            return [IsAuthenticated()]
-        elif self.action in ['create', 'destroy']:
-            return [IsAdministrator()]
-        elif self.action == 'update':
-            return [IsDoctor() | IsAdministrator()]
-        return [IsAuthenticated()]
-```
-
+use inbuilt django  auth groups for permissions handling
 ### Check Group Membership
 ```python
 # ✅ CORRECT
