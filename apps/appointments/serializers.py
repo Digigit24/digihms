@@ -12,19 +12,11 @@ class AppointmentTypeSerializer(serializers.ModelSerializer):
         model = AppointmentType
         fields = '__all__'
 
-
-class AppointmentTypeListSerializer(serializers.ModelSerializer):
-    """List view serializer for appointment types"""
-    class Meta:
-        model = AppointmentType
-        fields = ['id', 'name', 'duration_default']
-
-
 class AppointmentListSerializer(serializers.ModelSerializer):
     """List view serializer for appointments"""
     patient = PatientProfileListSerializer(read_only=True)
     doctor = DoctorProfileListSerializer(read_only=True)
-    appointment_type = AppointmentTypeListSerializer(read_only=True)
+    appointment_type = serializers.StringRelatedField()
     
     status_display = serializers.CharField(
         source='get_status_display', 
@@ -41,16 +33,15 @@ class AppointmentListSerializer(serializers.ModelSerializer):
             'id', 'appointment_id', 'patient', 'doctor', 
             'appointment_type', 'appointment_date', 'appointment_time', 
             'status', 'status_display', 'priority', 'priority_display',
-            'consultation_fee', 'is_paid', 'is_follow_up',
+            'consultation_fee', 'is_follow_up',
             'created_at', 'updated_at'
         ]
-
 
 class AppointmentDetailSerializer(serializers.ModelSerializer):
     """Detail view serializer for appointments"""
     patient = PatientProfileListSerializer(read_only=True)
     doctor = DoctorProfileListSerializer(read_only=True)
-    appointment_type = AppointmentTypeListSerializer(read_only=True)
+    appointment_type = serializers.StringRelatedField()
     
     status_display = serializers.CharField(
         source='get_status_display', 
@@ -60,14 +51,11 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
         source='get_priority_display', 
         read_only=True
     )
-    payment_method_display = serializers.CharField(
-        source='get_payment_method_display', 
-        read_only=True
-    )
     
     created_by_name = serializers.CharField(
         source='created_by.get_full_name', 
-        read_only=True
+        read_only=True,
+        allow_null=True
     )
     cancelled_by_name = serializers.CharField(
         source='cancelled_by.get_full_name', 
@@ -82,7 +70,7 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Appointment
-        fields = '__all__'
+        exclude = ['patient', 'doctor', 'appointment_type']
         read_only_fields = [
             'id', 'appointment_id', 
             'created_at', 'updated_at',
@@ -90,7 +78,6 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             'actual_end_time', 'waiting_time_minutes',
             'cancelled_at', 'approved_at'
         ]
-
 
 class AppointmentCreateUpdateSerializer(serializers.ModelSerializer):
     """Create/Update serializer for appointments"""
@@ -110,11 +97,6 @@ class AppointmentCreateUpdateSerializer(serializers.ModelSerializer):
             'original_appointment', 
             'created_by', 'cancelled_by', 'approved_by'
         ]
-        extra_kwargs = {
-            'consultation_fee': {'required': False},
-            'is_paid': {'required': False},
-            'payment_method': {'required': False}
-        }
     
     def validate(self, attrs):
         """Perform additional validation"""
@@ -153,17 +135,6 @@ class AppointmentCreateUpdateSerializer(serializers.ModelSerializer):
             except Appointment.DoesNotExist:
                 raise serializers.ValidationError({
                     'original_appointment_id': 'Invalid original appointment ID'
-                })
-        
-        # Validate consultation fee and payment details
-        if attrs.get('is_paid'):
-            if not attrs.get('consultation_fee'):
-                raise serializers.ValidationError({
-                    'consultation_fee': 'Consultation fee is required for paid appointments'
-                })
-            if not attrs.get('payment_method'):
-                raise serializers.ValidationError({
-                    'payment_method': 'Payment method is required for paid appointments'
                 })
         
         return attrs

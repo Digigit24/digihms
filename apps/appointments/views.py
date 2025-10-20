@@ -109,7 +109,7 @@ class AppointmentTypeViewSet(viewsets.ModelViewSet):
             OpenApiParameter(name='date_to', type=str, description='Appointments to date (YYYY-MM-DD)'),
             OpenApiParameter(name='status', type=str, description='Comma-separated status values'),
             OpenApiParameter(name='priority', type=str, description='Comma-separated priority values'),
-            OpenApiParameter(name='is_paid', type=bool, description='Filter by payment status'),
+            
             OpenApiParameter(name='search', type=str, description='Search across complaint, symptoms, notes'),
         ],
         tags=['Appointments']
@@ -151,7 +151,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = [
         'doctor', 'patient', 'status',
-        'priority', 'is_paid',
+        'priority', 
         'appointment_date', 'is_follow_up'
     ]
     search_fields = ['chief_complaint', 'symptoms', 'notes', 'appointment_id']
@@ -339,8 +339,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         avg_fee = Appointment.objects.aggregate(avg_fee=Avg('consultation_fee'))['avg_fee'] or 0
 
         # Paid vs Unpaid
-        paid_count = Appointment.objects.filter(is_paid=True).count()
-        unpaid_count = total - paid_count
+        
 
         return Response({
             'success': True,
@@ -349,7 +348,6 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 'status_breakdown': status_breakdown,
                 'priority_breakdown': priority_breakdown,
                 'average_consultation_fee': round(float(avg_fee), 2),
-                'paid_appointments': paid_count,
-                'unpaid_appointments': unpaid_count
+                
             }
         })
