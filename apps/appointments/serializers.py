@@ -12,6 +12,9 @@ class AppointmentTypeSerializer(serializers.ModelSerializer):
         model = AppointmentType
         fields = '__all__'
 
+
+
+
 class AppointmentListSerializer(serializers.ModelSerializer):
     """List view serializer for appointments"""
     patient = PatientProfileListSerializer(read_only=True)
@@ -78,7 +81,8 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             'actual_end_time', 'waiting_time_minutes',
             'cancelled_at', 'approved_at'
         ]
-        
+
+
 class AppointmentCreateUpdateSerializer(serializers.ModelSerializer):
     """Create/Update serializer for appointments"""
     patient_id = serializers.IntegerField(write_only=True)
