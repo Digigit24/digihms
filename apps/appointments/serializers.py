@@ -41,7 +41,7 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
     """Detail view serializer for appointments"""
     patient = PatientProfileListSerializer(read_only=True)
     doctor = DoctorProfileListSerializer(read_only=True)
-    appointment_type = serializers.StringRelatedField()
+    appointment_type = AppointmentTypeSerializer(read_only=True)  # Changed from StringRelatedField
     
     status_display = serializers.CharField(
         source='get_status_display', 
@@ -70,7 +70,7 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Appointment
-        exclude = ['patient', 'doctor', 'appointment_type']
+        fields = '__all__'  # Changed from 'exclude'
         read_only_fields = [
             'id', 'appointment_id', 
             'created_at', 'updated_at',
@@ -78,7 +78,7 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             'actual_end_time', 'waiting_time_minutes',
             'cancelled_at', 'approved_at'
         ]
-
+        
 class AppointmentCreateUpdateSerializer(serializers.ModelSerializer):
     """Create/Update serializer for appointments"""
     patient_id = serializers.IntegerField(write_only=True)
