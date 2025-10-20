@@ -25,6 +25,11 @@ class FollowUpAppointmentInline(admin.TabularInline):
     def has_add_permission(self, request, obj=None):
         """Restrict adding follow-ups directly"""
         return request.user.is_superuser
+    
+    # Add this method to prevent cursor issues
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('patient', 'doctor', 'appointment_type')
 
 @admin.register(Appointment)
 class AppointmentAdmin(admin.ModelAdmin):
@@ -45,7 +50,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         'priority', 
         'appointment_date', 
         'is_follow_up',
-        'doctor__user__username',  # Corrected from previous version
+        'doctor',  # Changed from doctor__user__username
     ]
     
     search_fields = [
@@ -70,6 +75,9 @@ class AppointmentAdmin(admin.ModelAdmin):
         'cancelled_at',
         'approved_at'
     ]
+    
+    # Add autocomplete for foreign keys to prevent loading all records
+    autocomplete_fields = ['patient', 'doctor', 'original_appointment']
     
     fieldsets = (
         ('Appointment Details', {
@@ -104,17 +112,33 @@ class AppointmentAdmin(admin.ModelAdmin):
                 'consultation_fee',
             )
         }),
-        # Other fieldsets remain the same
+        ('Timestamps', {
+            'fields': (
+                'checked_in_at',
+                'actual_start_time',
+                'actual_end_time',
+                'waiting_time_minutes',
+                'cancelled_at',
+                'approved_at',
+                'created_at',
+                'updated_at'
+            ),
+            'classes': ('collapse',)
+        }),
     )
     
     def patient_display(self, obj):
         """Display patient information"""
-        return f"{obj.patient.full_name} ({obj.patient.mobile_primary})" if obj.patient else "No Patient"
+        if not obj.patient:
+            return "No Patient"
+        return f"{obj.patient.first_name} {obj.patient.last_name} ({obj.patient.mobile_primary})"
     patient_display.short_description = "Patient"
     
     def doctor_display(self, obj):
         """Display doctor information"""
-        return f"Dr. {obj.doctor.user.get_full_name()}" if obj.doctor else "No Doctor"
+        if not obj.doctor or not obj.doctor.user:
+            return "No Doctor"
+        return f"Dr. {obj.doctor.user.get_full_name()}"
     doctor_display.short_description = "Doctor"
     
     def status_badge(self, obj):
@@ -139,7 +163,24 @@ class AppointmentAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         """Optimize queryset with select_related"""
-        return super().get_queryset(request).select_related(
-            'patient', 'doctor', 'appointment_type',
-            'created_by', 'cancelled_by', 'approved_by'
-        ).prefetch_related('follow_ups')
+        qs = super().get_queryset(request)
+        # Use select_related for foreign keys to reduce queries
+        return qs.select_related(
+            'patient', 
+            'doctor__user',  # Include user relation
+            'appointment_type',
+            'created_by', 
+            'cancelled_by', 
+            'approved_by'
+        )
+    
+    # IMPORTANT: Override formfield_for_foreignkey to prevent cursor issues
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "patient":
+            # Limit queryset to prevent loading too many records
+            kwargs["queryset"] = db_field.related_model.objects.select_related('user').all()
+        elif db_field.name == "doctor":
+            kwargs["queryset"] = db_field.related_model.objects.select_related('user').all()
+        elif db_field.name == "original_appointment":
+            kwargs["queryset"] = Appointment.objects.select_related('patient', 'doctor').all()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
