@@ -3,18 +3,6 @@ from django.utils.html import format_html
 from .models import Appointment, AppointmentType
 
 
-class AppointmentInline(admin.TabularInline):
-    """Inline admin for Follow-up Appointments"""
-    model = Appointment
-    extra = 0
-    readonly_fields = ['appointment_id', 'created_at', 'updated_at']
-    fk_name = 'original_appointment'
-    
-    def has_add_permission(self, request, obj=None):
-        """Restrict adding follow-ups directly"""
-        return request.user.is_superuser
-
-
 @admin.register(AppointmentType)
 class AppointmentTypeAdmin(admin.ModelAdmin):
     """Admin configuration for Appointment Types"""
@@ -29,13 +17,25 @@ class AppointmentTypeAdmin(admin.ModelAdmin):
     list_filter = ['duration_default']
 
 
+class FollowUpAppointmentInline(admin.TabularInline):
+    """Inline admin for Follow-up Appointments"""
+    model = Appointment
+    fk_name = 'original_appointment'
+    extra = 0
+    readonly_fields = ['appointment_id', 'created_at', 'updated_at']
+    
+    def has_add_permission(self, request, obj=None):
+        """Restrict adding follow-ups directly"""
+        return request.user.is_superuser
+
+
 @admin.register(Appointment)
 class AppointmentAdmin(admin.ModelAdmin):
     """Comprehensive Appointment Management in Admin"""
     list_display = [
         'appointment_id', 
-        'patient_info', 
-        'doctor_info', 
+        'patient_display', 
+        'doctor_display', 
         'appointment_date', 
         'appointment_time', 
         'status_badge', 
@@ -47,7 +47,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         'status', 
         'priority', 
         'appointment_date', 
-        'doctor', 
+        'doctor__user', 
         'is_follow_up'
     ]
     
@@ -60,7 +60,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         'chief_complaint'
     ]
     
-    inlines = [AppointmentInline]
+    inlines = [FollowUpAppointmentInline]
     
     readonly_fields = [
         'appointment_id', 
@@ -105,6 +105,8 @@ class AppointmentAdmin(admin.ModelAdmin):
         ('Financial Details', {
             'fields': (
                 'consultation_fee',
+                'is_paid',
+                'payment_method'
             )
         }),
         ('Timing Details', {
@@ -136,19 +138,15 @@ class AppointmentAdmin(admin.ModelAdmin):
         }),
     )
     
-    def patient_info(self, obj):
+    def patient_display(self, obj):
         """Display patient information"""
-        if obj.patient:
-            return f"{obj.patient.full_name} ({obj.patient.mobile_primary})"
-        return "No Patient"
-    patient_info.short_description = "Patient"
+        return f"{obj.patient.full_name} ({obj.patient.mobile_primary})" if obj.patient else "No Patient"
+    patient_display.short_description = "Patient"
     
-    def doctor_info(self, obj):
+    def doctor_display(self, obj):
         """Display doctor information"""
-        if obj.doctor:
-            return f"Dr. {obj.doctor.user.get_full_name()}"
-        return "No Doctor"
-    doctor_info.short_description = "Doctor"
+        return f"Dr. {obj.doctor.user.get_full_name()}" if obj.doctor else "No Doctor"
+    doctor_display.short_description = "Doctor"
     
     def status_badge(self, obj):
         """Colorful status representation"""

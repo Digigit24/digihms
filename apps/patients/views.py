@@ -1,9 +1,11 @@
 from django.db.models import Q, Avg, Sum
 from django.utils import timezone
+from django.db import transaction
+from django.contrib.auth.models import Group
 
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated, BasePermission
+from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -17,6 +19,7 @@ from .serializers import (
     PatientProfileListSerializer,
     PatientProfileDetailSerializer,
     PatientProfileCreateUpdateSerializer,
+    PatientRegistrationSerializer,  # NEW
     PatientVitalsSerializer,
     PatientVitalsCreateUpdateSerializer,
     PatientAllergySerializer,
@@ -26,10 +29,9 @@ from .serializers import (
 
 # --------------------------------------------------------------------------------------
 # Permission helper that maps DRF actions -> Django model permission codenames
-# Adjust APP_LABEL if your app label isn't literally "patients".
 # --------------------------------------------------------------------------------------
 class ActionPermissions(BasePermission):
-    APP_LABEL = 'patients'  # change if your app label differs
+    APP_LABEL = 'patients'
 
     action_map = {
         # Core CRUD
@@ -52,9 +54,9 @@ class ActionPermissions(BasePermission):
 
         # Other
         'update_visit':    [f'{APP_LABEL}.change_patientprofile'],
-        'statistics':      [f'{APP_LABEL}.view_patientprofile'],  # plus admin-group check in view
-        'activate':        [f'{APP_LABEL}.change_patientprofile'], # plus admin-group check in view
-        'mark_deceased':   [f'{APP_LABEL}.change_patientprofile'], # plus admin-group check in view
+        'statistics':      [f'{APP_LABEL}.view_patientprofile'],
+        'activate':        [f'{APP_LABEL}.change_patientprofile'],
+        'mark_deceased':   [f'{APP_LABEL}.change_patientprofile'],
     }
 
     def has_permission(self, request, view):
@@ -239,10 +241,118 @@ class PatientProfileViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
-        obj.status = 'inactive'  # soft-delete
+        obj.status = 'inactive'
         obj.save()
         return Response({'success': True, 'message': 'Patient profile deactivated successfully'},
                         status=status.HTTP_204_NO_CONTENT)
+
+    # =========================================================================
+    # NEW: DEDICATED REGISTRATION ENDPOINT
+    # =========================================================================
+
+    @extend_schema(
+        summary="Register patient (with optional user account)",
+        description="Register a new patient. Can create with user account (canLogin=true) or without (walk-in, canLogin=false).",
+        request=PatientRegistrationSerializer,
+        responses={
+            201: OpenApiResponse(
+                description="Patient registered successfully",
+                response=PatientProfileDetailSerializer
+            ),
+            400: OpenApiResponse(description="Validation error")
+        },
+        examples=[
+            OpenApiExample(
+                'Patient Registration WITH User Account',
+                value={
+                    'can_login': True,
+                    'email': 'patient@example.com',
+                    'username': 'patient1',
+                    'password': 'SecurePass123',
+                    'password_confirm': 'SecurePass123',
+                    'first_name': 'Jane',
+                    'last_name': 'Smith',
+                    'middle_name': 'Marie',
+                    'date_of_birth': '1990-05-15',
+                    'gender': 'female',
+                    'mobile_primary': '+919876543210',
+                    'mobile_secondary': '+919876543211',
+                    'address_line1': '123 Main Street',
+                    'address_line2': 'Apt 4B',
+                    'city': 'Mumbai',
+                    'state': 'Maharashtra',
+                    'country': 'India',
+                    'pincode': '400001',
+                    'blood_group': 'O+',
+                    'height': 165.5,
+                    'weight': 58.0,
+                    'marital_status': 'married',
+                    'occupation': 'Software Engineer',
+                    'emergency_contact_name': 'John Smith',
+                    'emergency_contact_phone': '+919876543212',
+                    'emergency_contact_relation': 'Spouse',
+                    'insurance_provider': 'Star Health',
+                    'insurance_policy_number': 'SH123456789',
+                    'insurance_expiry_date': '2025-12-31'
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                'Walk-in Patient Registration WITHOUT User Account',
+                value={
+                    'can_login': False,
+                    'first_name': 'Rajesh',
+                    'last_name': 'Kumar',
+                    'date_of_birth': '1985-03-20',
+                    'gender': 'male',
+                    'mobile_primary': '+919876543220',
+                    'address_line1': '456 Park Road',
+                    'city': 'Pune',
+                    'state': 'Maharashtra',
+                    'country': 'India',
+                    'pincode': '411001',
+                    'blood_group': 'B+',
+                    'emergency_contact_name': 'Priya Kumar',
+                    'emergency_contact_phone': '+919876543221',
+                    'emergency_contact_relation': 'Wife'
+                },
+                request_only=True,
+            ),
+        ],
+        tags=['Patient Registration'],
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def register(self, request):
+        """
+        Register a new patient with optional user account.
+        - If can_login=true: Creates User + PatientProfile
+        - If can_login=false: Creates PatientProfile only (walk-in)
+        """
+        serializer = PatientRegistrationSerializer(data=request.data, context={'request': request})
+        
+        if serializer.is_valid():
+            patient = serializer.save()
+            
+            response_data = {
+                'success': True,
+                'message': 'Patient registered successfully',
+                'data': {
+                    'patient': PatientProfileDetailSerializer(patient).data
+                }
+            }
+            
+            # If user was created, generate token
+            if patient.user:
+                from rest_framework.authtoken.models import Token
+                token, created = Token.objects.get_or_create(user=patient.user)
+                response_data['data']['token'] = token.key
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
+        
+        return Response({
+            'success': False,
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     # =========================
     # Custom Actions (Vitals)
@@ -408,7 +518,6 @@ class PatientProfileViewSet(viewsets.ModelViewSet):
     )
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        # Keep your strict admin requirement
         if not request.user.groups.filter(name='Administrator').exists():
             return Response({'success': False, 'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -422,7 +531,6 @@ class PatientProfileViewSet(viewsets.ModelViewSet):
             insurance_provider__isnull=False,
             insurance_expiry_date__gte=datetime.date.today()
         ).count()
-
         avg_age = PatientProfile.objects.aggregate(avg=Avg('age'))['avg'] or 0
         total_visits = PatientProfile.objects.aggregate(total=Sum('total_visits'))['total'] or 0
 

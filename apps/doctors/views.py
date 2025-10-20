@@ -1,10 +1,12 @@
 from django.db.models import Avg
 from django.utils.timezone import now
+from django.db import transaction
+from django.contrib.auth.models import Group
 
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, DjangoModelPermissions
+from rest_framework.permissions import IsAuthenticated, DjangoModelPermissions, AllowAny
 
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -17,6 +19,7 @@ from .serializers import (
     DoctorProfileListSerializer,
     DoctorProfileDetailSerializer,
     DoctorProfileCreateUpdateSerializer,
+    DoctorRegistrationSerializer,  # NEW
     SpecialtySerializer,
     DoctorAvailabilitySerializer,
     DoctorAvailabilityCreateUpdateSerializer,
@@ -356,6 +359,79 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
         )
 
     # =========================================================================
+    # NEW: DEDICATED REGISTRATION ENDPOINT
+    # =========================================================================
+
+    @extend_schema(
+        summary="Register doctor with user account",
+        description="Register a new doctor with user account creation. Creates both User and DoctorProfile in one transaction.",
+        request=DoctorRegistrationSerializer,
+        responses={
+            201: OpenApiResponse(
+                description="Doctor registered successfully",
+                response=DoctorProfileDetailSerializer
+            ),
+            400: OpenApiResponse(description="Validation error")
+        },
+        examples=[
+            OpenApiExample(
+                'Doctor Registration Example',
+                value={
+                    'email': 'doctor@hospital.com',
+                    'username': 'doctor1',
+                    'password': 'SecurePass123',
+                    'password_confirm': 'SecurePass123',
+                    'first_name': 'John',
+                    'last_name': 'Doe',
+                    'phone': '+919876543210',
+                    'medical_license_number': 'MED123456',
+                    'license_issuing_authority': 'Medical Council of India',
+                    'license_issue_date': '2020-01-01',
+                    'license_expiry_date': '2030-01-01',
+                    'qualifications': 'MBBS, MD - Cardiology',
+                    'specialty_ids': [1, 2],
+                    'years_of_experience': 5,
+                    'consultation_fee': 500.00,
+                    'consultation_duration': 30,
+                    'is_available_online': True,
+                    'is_available_offline': True,
+                    'languages_spoken': 'English, Hindi, Marathi'
+                },
+                request_only=True,
+            ),
+        ],
+        tags=['Doctor Registration'],
+    )
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def register(self, request):
+        """
+        Register a new doctor with user account.
+        Creates User + DoctorProfile in one transaction.
+        """
+        serializer = DoctorRegistrationSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            doctor = serializer.save()
+            
+            # Generate token for immediate login
+            from rest_framework.authtoken.models import Token
+            token, created = Token.objects.get_or_create(user=doctor.user)
+            
+            return Response({
+                'success': True,
+                'message': 'Doctor registered successfully',
+                'data': {
+                    'token': token.key,
+                    'doctor': DoctorProfileDetailSerializer(doctor).data
+                }
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response({
+            'success': False,
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # =========================================================================
     # CUSTOM ACTIONS
     # =========================================================================
 
@@ -511,8 +587,6 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
             )
 
         doctor = self.get_object()
-
-        
         doctor.status = 'inactive'
         doctor.save(update_fields=['status'])
         

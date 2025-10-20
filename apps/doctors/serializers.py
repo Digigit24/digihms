@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from django.db import transaction
 from .models import DoctorProfile, Specialty, DoctorAvailability
 from apps.accounts.serializers import UserSerializer
 
@@ -204,3 +206,199 @@ class DoctorProfileCreateUpdateSerializer(serializers.ModelSerializer):
             instance.specialties.set(specialties)
         
         return instance
+
+
+# =============================================================================
+# NEW: DOCTOR REGISTRATION SERIALIZER
+# =============================================================================
+
+class DoctorRegistrationSerializer(serializers.Serializer):
+    """
+    Serializer for doctor registration with user creation.
+    Creates User + DoctorProfile in one transaction.
+    """
+    # User fields
+    email = serializers.EmailField(required=True)
+    username = serializers.CharField(max_length=150, required=True)
+    password = serializers.CharField(write_only=True, min_length=8, required=True)
+    password_confirm = serializers.CharField(write_only=True, required=True)
+    first_name = serializers.CharField(max_length=150, required=True)
+    last_name = serializers.CharField(max_length=150, required=True)
+    phone = serializers.CharField(max_length=15, required=True)
+    
+    # Optional user fields
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    gender = serializers.ChoiceField(
+        choices=[('male', 'Male'), ('female', 'Female'), ('other', 'Other')],
+        required=False,
+        allow_null=True
+    )
+    address_line1 = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    address_line2 = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    state = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    country = serializers.CharField(max_length=100, default='India')
+    pincode = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    
+    # Doctor Profile fields (REQUIRED)
+    medical_license_number = serializers.CharField(max_length=64, required=True)
+    license_issuing_authority = serializers.CharField(max_length=128, required=True)
+    license_issue_date = serializers.DateField(required=True)
+    license_expiry_date = serializers.DateField(required=True)
+    qualifications = serializers.CharField(required=True)
+    specialty_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True
+    )
+    years_of_experience = serializers.IntegerField(default=0)
+    consultation_fee = serializers.DecimalField(max_digits=10, decimal_places=2, default=0)
+    consultation_duration = serializers.IntegerField(default=30)
+    is_available_online = serializers.BooleanField(default=True)
+    is_available_offline = serializers.BooleanField(default=True)
+    status = serializers.ChoiceField(
+        choices=[('active', 'Active'), ('on_leave', 'On Leave'), ('inactive', 'Inactive')],
+        default='active'
+    )
+    signature = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    languages_spoken = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    
+    def validate_email(self, value):
+        """Check if email already exists"""
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError('User with this email already exists')
+        return value
+    
+    def validate_username(self, value):
+        """Check if username already exists"""
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError('Username already exists')
+        return value
+    
+    def validate_medical_license_number(self, value):
+        """Check if license number already exists"""
+        if DoctorProfile.objects.filter(medical_license_number=value).exists():
+            raise serializers.ValidationError('Doctor with this license number already exists')
+        return value
+    
+    def validate(self, attrs):
+        """Cross-field validation"""
+        # Password confirmation
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError({
+                'password': 'Passwords do not match'
+            })
+        
+        # License dates validation
+        if attrs['license_expiry_date'] < attrs['license_issue_date']:
+            raise serializers.ValidationError({
+                'license_expiry_date': 'Expiry date must be after issue date'
+            })
+        
+        # License expiry date must be in future
+        import datetime
+        if attrs['license_expiry_date'] < datetime.date.today():
+            raise serializers.ValidationError({
+                'license_expiry_date': 'License expiry date must be in the future'
+            })
+        
+        # Consultation duration validation
+        if attrs['consultation_duration'] < 5:
+            raise serializers.ValidationError({
+                'consultation_duration': 'Consultation duration must be at least 5 minutes'
+            })
+        
+        # Consultation fee validation
+        if attrs['consultation_fee'] < 0:
+            raise serializers.ValidationError({
+                'consultation_fee': 'Consultation fee cannot be negative'
+            })
+        
+        # Years of experience validation
+        if attrs['years_of_experience'] < 0:
+            raise serializers.ValidationError({
+                'years_of_experience': 'Years of experience cannot be negative'
+            })
+        
+        # Specialty validation
+        specialty_ids = attrs.get('specialty_ids', [])
+        if specialty_ids:
+            existing_specialties = Specialty.objects.filter(id__in=specialty_ids).count()
+            if existing_specialties != len(specialty_ids):
+                raise serializers.ValidationError({
+                    'specialty_ids': 'One or more specialty IDs are invalid'
+                })
+        
+        return attrs
+    
+    @transaction.atomic
+    def create(self, validated_data):
+        """Create user and doctor profile"""
+        # Extract user fields
+        user_data = {
+            'email': validated_data['email'],
+            'username': validated_data['username'],
+            'first_name': validated_data['first_name'],
+            'last_name': validated_data['last_name'],
+            'phone': validated_data['phone'],
+            'date_of_birth': validated_data.get('date_of_birth'),
+            'gender': validated_data.get('gender'),
+            'address_line1': validated_data.get('address_line1', ''),
+            'address_line2': validated_data.get('address_line2', ''),
+            'city': validated_data.get('city', ''),
+            'state': validated_data.get('state', ''),
+            'country': validated_data.get('country', 'India'),
+            'pincode': validated_data.get('pincode', ''),
+        }
+        
+        password = validated_data['password']
+        
+        # Create user
+        user = User.objects.create_user(
+            password=password,
+            **user_data
+        )
+        
+        # Add user to Doctor group
+        try:
+            doctor_group = Group.objects.get(name='Doctor')
+            user.groups.add(doctor_group)
+        except Group.DoesNotExist:
+            # Rollback transaction
+            raise serializers.ValidationError(
+                'Doctor group does not exist. Please create it in Django Admin first.'
+            )
+        
+        # Extract doctor profile fields
+        specialty_ids = validated_data.pop('specialty_ids', [])
+        validated_data.pop('password')
+        validated_data.pop('password_confirm')
+        
+        # Remove user fields from validated_data
+        for field in user_data.keys():
+            validated_data.pop(field, None)
+        
+        # Create doctor profile
+        doctor = DoctorProfile.objects.create(
+            user=user,
+            medical_license_number=validated_data['medical_license_number'],
+            license_issuing_authority=validated_data['license_issuing_authority'],
+            license_issue_date=validated_data['license_issue_date'],
+            license_expiry_date=validated_data['license_expiry_date'],
+            qualifications=validated_data['qualifications'],
+            years_of_experience=validated_data.get('years_of_experience', 0),
+            consultation_fee=validated_data.get('consultation_fee', 0),
+            consultation_duration=validated_data.get('consultation_duration', 30),
+            is_available_online=validated_data.get('is_available_online', True),
+            is_available_offline=validated_data.get('is_available_offline', True),
+            status=validated_data.get('status', 'active'),
+            signature=validated_data.get('signature'),
+            languages_spoken=validated_data.get('languages_spoken')
+        )
+        
+        # Add specialties
+        if specialty_ids:
+            specialties = Specialty.objects.filter(id__in=specialty_ids)
+            doctor.specialties.set(specialties)
+        
+        return doctor
