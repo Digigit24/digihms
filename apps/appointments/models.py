@@ -108,6 +108,23 @@ class Appointment(models.Model):
         default=Decimal('0.00')
     )
 
+    visit = models.ForeignKey(
+    'opd.Visit',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name='linked_appointment',  # ← FIXED: unique name
+    help_text="Associated OPD visit when patient checks in"
+)
+
+    
+    # Check-in tracking (NEW)
+    check_in_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Time when patient checked in for the appointment"
+    )
+
     # Timing and Check-in Details
     checked_in_at = models.DateTimeField(null=True, blank=True)
     actual_start_time = models.TimeField(null=True, blank=True)

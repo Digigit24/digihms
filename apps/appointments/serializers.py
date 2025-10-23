@@ -30,6 +30,7 @@ class AppointmentListSerializer(serializers.ModelSerializer):
         read_only=True
     )
     
+    
     class Meta:
         model = Appointment
         fields = [
@@ -37,8 +38,13 @@ class AppointmentListSerializer(serializers.ModelSerializer):
             'appointment_type', 'appointment_date', 'appointment_time', 
             'status', 'status_display', 'priority', 'priority_display',
             'consultation_fee', 'is_follow_up',
+            'visit', 
+           
+            'check_in_time', 
             'created_at', 'updated_at'
         ]
+        read_only_fields = ['check_in_time']
+    
 
 class AppointmentDetailSerializer(serializers.ModelSerializer):
     """Detail view serializer for appointments"""
@@ -70,6 +76,7 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True
     )
+    visit_number = serializers.CharField(source='visit.visit_number', read_only=True)
     
     class Meta:
         model = Appointment
@@ -78,6 +85,9 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             'id', 'appointment_id', 
             'created_at', 'updated_at',
             'checked_in_at', 'actual_start_time', 
+            'visit', 
+            'visit_number', 
+            'check_in_time',
             'actual_end_time', 'waiting_time_minutes',
             'cancelled_at', 'approved_at'
         ]

@@ -1,710 +1,436 @@
-# 🏥 Hospital Management System - Development Rules & Guidelines
+# PROJECT RULES & STANDARDS
+# Hospital Management System - Backend Development
+# Last Updated: 2025
 
-## 📁 Project Structure
-
-```
-hospital_management/
-├── venv/                          # Virtual environment
-├── hms/                           # Main project folder
-│   ├── __init__.py
-│   ├── settings.py               # Project settings
-│   ├── urls.py                   # Main URL configuration
-│   ├── asgi.py
-│   └── wsgi.py
-├── apps/                          # All Django apps
-│   ├── __init__.py
-│   ├── accounts/                 # ✅ User management & auth
-│   │   ├── migrations/
-│   │   ├── management/
-│   │   │   └── commands/
-│   │   ├── __init__.py
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── admin.py
-│   │   └── apps.py
-│   ├── doctors/                  # 🔜 Doctor profiles & availability
-│   ├── patients/                 # 🔜 Patient records & vitals
-│   ├── appointments/             # 🔜 Appointment scheduling
-│   ├── prescriptions/            # 🔜 Prescriptions
-│   ├── pharmacy/                 # 🔜 Pharmacy & inventory
-│   ├── laboratory/               # 🔜 Lab tests & results
-│   ├── billing/                  # 🔜 Billing & payments
-│   └── medical_records/          # 🔜 Medical records
-├── media/                         # User uploaded files
-│   ├── profiles/                 # Profile pictures
-│   ├── doctors/                  # Doctor-related files
-│   │   └── signatures/
-│   ├── prescriptions/            # Prescription documents
-│   └── lab_reports/              # Lab report files
-├── staticfiles/                   # Collected static files
-├── requirements.txt              # Python dependencies
-├── .env                          # Environment variables
-├── .gitignore                    # Git ignore rules
-├── rules.md                      # This file
-├── test_api.py                   # API testing script
-└── manage.py                     # Django management script
-```
+## 🎯 PROJECT OVERVIEW
+- **Project Type:** Hospital Management System
+- **Framework:** Django + Django REST Framework
+- **Database:** PostgreSQL (or as configured)
+- **Architecture:** Modular app-based architecture
+- **Current Phase:** OPD Module Implementation
 
 ---
 
-## 🎯 Core Architecture Principles
+## 📁 PROJECT STRUCTURE
 
-### 1. Authentication & Authorization
-- ✅ **USE** Django's built-in User model by extending `AbstractUser`
-- ✅ **USE** Django Groups for role-based access control (RBAC)
-- ✅ **USE** Django's native permissions system
-- ✅ **USE** DRF Token Authentication (`rest_framework.authtoken`)
-- ❌ **DO NOT** create custom permission tables
-- ❌ **DO NOT** add `role` field to User model (use Group membership)
+### Existing Apps:
+1. **patients/** - Patient management
+2. **doctors/** - Doctor management
+3. **appointments/** - Appointment scheduling
+4. **payments/** - Online payment gateway (e-commerce focused)
+5. **orders/** - Service orders (diagnostics, consultations)
+6. **pharmacy/** - Pharmacy with separate cart/orders
 
-### 2. User & Profile Architecture
-```
-Central User Model (AbstractUser)
-    ↓
-Role determined by Django Group membership
-    ↓
-Profile Models (OneToOneField to User):
-    - DoctorProfile
-    - PatientProfile
-    - PharmacistProfile
-    - NurseProfile
-    - ReceptionistProfile
-    - LabTechnicianProfile
-```
-
-### 3. Django Groups (Roles)
-```
-- Administrator       → Full access
-- Doctor              → Patient, Appointment, Prescription management
-- Nurse               → Patient vitals, limited patient info
-- Receptionist        → Patient registration, Appointments, Billing
-- Pharmacist          → Prescriptions, Medications, Inventory
-- Lab Technician      → Lab tests, Results
-- Patient             → Own records only (read-only)
-```
+### New App Being Built:
+7. **opd/** - Outpatient Department (walk-in patients, billing, clinical notes)
 
 ---
 
-## 📋 Model Development Rules
+## 🚫 STRICT RULES - NEVER VIOLATE
 
-### File Upload Fields
-- ✅ **USE** `ImageField` for images (profile pictures, signatures, scans)
-- ✅ **USE** `FileField` for documents (PDFs, reports)
-- ✅ **ALWAYS** specify `upload_to` parameter
-- ✅ **ALWAYS** add `blank=True, null=True` for optional uploads
-- ❌ **DO NOT** use `CharField` for storing file paths
+### 1. PERMISSIONS - CRITICAL
+```
+❌ NEVER create custom permission classes
+❌ NEVER use: IsReceptionist, IsDoctor, IsBillingUser, etc.
+✅ ALWAYS use Django's built-in Groups & Permissions system
+✅ ALWAYS manage permissions via Django Admin UI
+✅ ALWAYS use DjangoModelPermissions in DRF views
+✅ Check permissions: request.user.has_perm('opd.add_visit')
+```
 
-**Example:**
+**Correct Permission Implementation:**
 ```python
 # ✅ CORRECT
-profile_picture = models.ImageField(
-    upload_to='profiles/',
-    blank=True,
-    null=True
-)
+from rest_framework.permissions import DjangoModelPermissions
 
-signature = models.ImageField(
-    upload_to='doctors/signatures/',
-    blank=True,
-    null=True
-)
+class VisitViewSet(viewsets.ModelViewSet):
+    permission_classes = [DjangoModelPermissions]
+    
+    def create(self, request):
+        if request.user.has_perm('opd.add_visit'):
+            # process
+            pass
 
-# ❌ WRONG
-profile_picture = models.CharField(max_length=500)
+# ❌ WRONG - Never do this
+class IsReceptionist(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.groups.filter(name='Receptionist').exists()
 ```
 
-### Required Model Components
-
-Every model MUST have:
-```python
-class YourModel(models.Model):
-    # Fields...
-    
-    # ✅ REQUIRED: Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    # ✅ REQUIRED: Meta class
-    class Meta:
-        db_table = 'your_table_name'
-        verbose_name = 'Your Model'
-        verbose_name_plural = 'Your Models'
-        ordering = ['-created_at']  # or appropriate field
-    
-    # ✅ REQUIRED: __str__ method
-    def __str__(self):
-        return f"{self.name}"  # or appropriate representation
+### 2. APP BOUNDARIES - CRITICAL
+```
+❌ NEVER put billing in payments app
+✅ OPD billing MUST be in opd app
+✅ Payments app is ONLY for online payment gateways
+✅ Each app handles its own domain completely
 ```
 
-### Foreign Key & OneToOne Relationships
-```python
-# ✅ User relationships (can be null if user is deleted)
-user = models.OneToOneField(
-    settings.AUTH_USER_MODEL,
-    on_delete=models.CASCADE,  # or SET_NULL
-    related_name='doctor_profile'
-)
-
-# ✅ Other relationships
-doctor = models.ForeignKey(
-    DoctorProfile,
-    on_delete=models.CASCADE,
-    related_name='appointments'
-)
-
-# ✅ ALWAYS use settings.AUTH_USER_MODEL
-from django.conf import settings
-# NOT: from apps.accounts.models import User
-
-# ✅ ALWAYS use related_name
-# ✅ ALWAYS use on_delete parameter
+**Correct App Separation:**
+```
+opd/          → Visit management, OPD billing, clinical notes
+payments/     → Online payment gateway integration only
+pharmacy/     → Pharmacy orders and billing (separate)
 ```
 
-### Indexing
+### 3. MODEL RELATIONSHIPS
+```
+✅ Use clear ForeignKey relationships
+✅ Use OneToOneField for 1:1 relationships
+✅ Always add related_name for reverse lookups
+✅ Use on_delete=models.PROTECT for critical data
+✅ Use on_delete=models.CASCADE carefully
+```
+
+**Correct Relationship Pattern:**
 ```python
-class Meta:
-    indexes = [
-        models.Index(fields=['patient_id']),
-        models.Index(fields=['created_at']),
-        models.Index(fields=['last_name', 'first_name']),
-    ]
+class Visit(models.Model):
+    patient = models.ForeignKey(
+        'patients.Patient',
+        on_delete=models.PROTECT,
+        related_name='opd_visits'
+    )
+    
+class OPDBill(models.Model):
+    visit = models.OneToOneField(
+        Visit,
+        on_delete=models.CASCADE,
+        related_name='opd_bill'
+    )
+```
+
+### 4. CODE STYLE
+```
+✅ Follow PEP 8
+✅ Use meaningful variable names
+✅ Add docstrings to all classes and methods
+✅ Use type hints where appropriate
+✅ Keep functions small and focused
+✅ DRY principle - Don't Repeat Yourself
+```
+
+### 5. API DESIGN
+```
+✅ Use ViewSets for standard CRUD
+✅ Use APIView for custom endpoints
+✅ Return proper HTTP status codes
+✅ Always paginate list endpoints
+✅ Add filters and search capabilities
+✅ Use serializers for validation
+```
+
+**Correct API Pattern:**
+```python
+class VisitViewSet(viewsets.ModelViewSet):
+    queryset = Visit.objects.all()
+    serializer_class = VisitSerializer
+    permission_classes = [DjangoModelPermissions]
+    filterset_fields = ['patient', 'doctor', 'status']
+    search_fields = ['patient__name', 'visit_number']
+    ordering_fields = ['visit_date', 'entry_time']
+```
+
+### 6. SERIALIZERS
+```
+✅ Create separate serializers for list/detail/create
+✅ Use nested serializers for related data
+✅ Add proper validation in validate_* methods
+✅ Use SerializerMethodField for computed fields
+```
+
+### 7. ERROR HANDLING
+```
+✅ Use try-except blocks for operations
+✅ Return meaningful error messages
+✅ Log errors appropriately
+✅ Use database transactions for critical operations
+```
+
+**Correct Error Handling:**
+```python
+from django.db import transaction
+
+@transaction.atomic
+def create_bill(self, request):
+    try:
+        # billing logic
+        pass
+    except ValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        logger.error(f"Bill creation failed: {e}")
+        return Response(
+            {'error': 'Internal error'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+```
+
+### 8. SIGNALS
+```
+✅ Use signals for cross-app communication
+✅ Keep signal handlers lightweight
+✅ Avoid circular imports
+✅ Connect signals in apps.py ready() method
 ```
 
 ---
 
-## 🔐 Permissions & Access Control
+## 📋 NAMING CONVENTIONS
 
-### Permission Classes Pattern
-use inbuilt django  auth groups for permissions handling
-### Check Group Membership
+### Models:
 ```python
-# ✅ CORRECT
-if request.user.groups.filter(name='Doctor').exists():
-    # Do something
+✅ PascalCase: Visit, OPDBill, ClinicalNote
+✅ Singular names: Patient (not Patients)
+✅ Descriptive: ProcedureBillItem (not BillItem)
+```
 
-# ✅ Check multiple groups
-user_groups = request.user.groups.values_list('name', flat=True)
-if 'Doctor' in user_groups or 'Administrator' in user_groups:
-    # Do something
+### Fields:
+```python
+✅ snake_case: visit_date, entry_time, payment_status
+✅ Boolean: is_active, has_payment, is_completed
+✅ Dates: created_at, updated_at, visit_date
+✅ ForeignKey: patient, doctor, visit (not patient_id)
+```
+
+### URLs:
+```python
+✅ kebab-case: /api/opd/visits/, /opd-bills/
+✅ Plural for collections: /visits/, /bills/
+✅ Nested when logical: /visits/{id}/clinical-note/
+```
+
+### Variables:
+```python
+✅ snake_case: visit_number, total_amount
+✅ Descriptive: patient_name (not pn)
 ```
 
 ---
 
-## 📡 API Response Format
+## 🏗️ MODEL FIELD STANDARDS
 
-### ✅ ALWAYS use consistent response format:
-
-**Success Response:**
+### Required Fields Pattern:
 ```python
-return Response({
-    'success': True,
-    'data': {...}
-}, status=status.HTTP_200_OK)
-```
+# ID (auto)
+id = models.AutoField(primary_key=True)
 
-**Error Response:**
-```python
-return Response({
-    'success': False,
-    'error': 'Error message here'
-}, status=status.HTTP_400_BAD_REQUEST)
-```
+# Foreign Keys
+patient = models.ForeignKey('patients.Patient', on_delete=models.PROTECT, related_name='...')
 
-**List Response (with pagination):**
-```python
-def list(self, request, *args, **kwargs):
-    queryset = self.filter_queryset(self.get_queryset())
-    page = self.paginate_queryset(queryset)
-    
-    if page is not None:
-        serializer = self.get_serializer(page, many=True)
-        return self.get_paginated_response(serializer.data)
-    
-    serializer = self.get_serializer(queryset, many=True)
-    return Response({
-        'success': True,
-        'data': serializer.data
-    })
+# Choices
+STATUS_CHOICES = [
+    ('waiting', 'Waiting'),
+    ('in_progress', 'In Progress'),
+]
+status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='waiting')
+
+# Dates
+created_at = models.DateTimeField(auto_now_add=True)
+updated_at = models.DateTimeField(auto_now=True)
+
+# Money
+amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+# Files
+attachment = models.FileField(upload_to='opd/attachments/%Y/%m/')
+
+# JSON (for flexible data)
+payment_details = models.JSONField(default=dict, blank=True)
+
+# Audit
+created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='...')
 ```
 
 ---
 
-## 🎨 Serializer Patterns
+## 📊 SERIALIZER PATTERNS
 
-### List vs Detail Serializers
+### Standard Pattern:
 ```python
-# ✅ Use different serializers for list and detail views
-class YourViewSet(viewsets.ModelViewSet):
-    def get_serializer_class(self):
-        if self.action == 'list':
-            return YourModelListSerializer  # Minimal fields
-        elif self.action in ['create', 'update', 'partial_update']:
-            return YourModelCreateUpdateSerializer
-        return YourModelDetailSerializer  # Full fields
-```
-
-### Create/Update Patterns
-```python
-class ModelCreateUpdateSerializer(serializers.ModelSerializer):
-    # ✅ Use write_only for IDs
-    user_id = serializers.IntegerField(write_only=True)
+class VisitSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source='patient.full_name', read_only=True)
+    doctor_name = serializers.CharField(source='doctor.full_name', read_only=True)
     
     class Meta:
-        model = YourModel
-        exclude = ['created_at', 'updated_at']
-    
-    def validate_user_id(self, value):
-        # Validation logic
-        return value
-    
-    def create(self, validated_data):
-        # Custom creation logic
-        user_id = validated_data.pop('user_id')
-        # ...
-        return instance
-```
-
-### Read-Only Fields
-```python
-class YourSerializer(serializers.ModelSerializer):
-    # ✅ Computed/property fields are read_only
-    full_name = serializers.CharField(read_only=True)
-    role = serializers.CharField(read_only=True)
-    
-    class Meta:
+        model = Visit
+        fields = '__all__'  # or list specific fields
         read_only_fields = ['id', 'created_at', 'updated_at']
-```
 
----
-
-## 🎯 ViewSet Patterns
-
-### Query Optimization
-```python
-# ✅ ALWAYS use select_related and prefetch_related
-queryset = Model.objects.select_related(
-    'foreign_key_field'
-).prefetch_related(
-    'many_to_many_field'
-)
-```
-
-### Filtering & Search
-```python
-class YourViewSet(viewsets.ModelViewSet):
-    filter_backends = [
-        DjangoFilterBackend,
-        filters.SearchFilter,
-        filters.OrderingFilter
-    ]
-    filterset_fields = ['status', 'city']
-    search_fields = ['name', 'email']
-    ordering_fields = ['created_at', 'name']
+class VisitCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Visit
+        fields = ['patient', 'doctor', 'visit_type']
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Custom filters
-        specialty = self.request.query_params.get('specialty')
-        if specialty:
-            queryset = queryset.filter(specialty__icontains=specialty)
-        
-        return queryset
-```
-
-### Custom Actions
-```python
-@action(detail=True, methods=['post'])
-def custom_action(self, request, pk=None):
-    """Custom action description"""
-    instance = self.get_object()
-    
-    # Business logic
-    
-    return Response({
-        'success': True,
-        'message': 'Action completed'
-    })
-
-@action(detail=False, methods=['get'])
-def statistics(self, request):
-    """Get statistics"""
-    return Response({
-        'success': True,
-        'data': {...}
-    })
+    def validate_patient(self, value):
+        # validation logic
+        return value
 ```
 
 ---
 
-## 🔗 URL Patterns
-
-### URL Structure
-```python
-# app/urls.py
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-
-router = DefaultRouter()
-router.register(r'resource', ResourceViewSet, basename='resource')
-
-urlpatterns = [
-    # Standalone views
-    path('action/', ActionView.as_view(), name='action'),
-    
-    # ViewSet routes
-    path('', include(router.urls)),
-]
+## 🔒 SECURITY RULES
 ```
-
-### Main URLs
-```python
-# hms/urls.py
-urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/', include('apps.accounts.urls')),
-    path('api/doctors/', include('apps.doctors.urls')),
-    path('api/patients/', include('apps.patients.urls')),
-    # ...
-]
+✅ ALWAYS validate user input
+✅ ALWAYS use CSRF protection
+✅ ALWAYS authenticate API endpoints
+✅ NEVER expose sensitive data in APIs
+✅ ALWAYS sanitize file uploads
+✅ Use HTTPS in production
+✅ Rate limit public endpoints
 ```
 
 ---
 
-## 🔨 Admin Configuration
+## 📝 DOCUMENTATION REQUIREMENTS
 
-### Always Register Models
+### Model Docstrings:
 ```python
-from django.contrib import admin
-from .models import YourModel
-
-@admin.register(YourModel)
-class YourModelAdmin(admin.ModelAdmin):
-    list_display = ['field1', 'field2', 'created_at']
-    list_filter = ['status', 'created_at']
-    search_fields = ['name', 'email']
-    readonly_fields = ['created_at', 'updated_at']
-    ordering = ['-created_at']
-    
-    fieldsets = (
-        ('Basic Info', {
-            'fields': ('field1', 'field2')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at')
-        }),
-    )
-```
-
----
-
-## 🗄️ Database Best Practices
-
-### Unique Fields
-```python
-# ✅ Use unique=True for identifiers
-patient_id = models.CharField(max_length=20, unique=True)
-email = models.EmailField(unique=True)
-license_number = models.CharField(max_length=50, unique=True)
-```
-
-### Choices
-```python
-# ✅ Define choices as constants
-class YourModel(models.Model):
-    STATUS_CHOICES = [
-        ('active', 'Active'),
-        ('inactive', 'Inactive'),
-    ]
-    
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='active'
-    )
-```
-
-### Soft Deletes
-```python
-# ✅ Use status field instead of hard delete
-status = models.CharField(
-    max_length=20,
-    choices=[
-        ('active', 'Active'),
-        ('deleted', 'Deleted'),
-    ],
-    default='active'
-)
-
-# Filter active records
-queryset = Model.objects.filter(status='active')
-```
-
----
-
-## 🧪 Testing Guidelines
-
-### API Testing Pattern
-```python
-# Use test_api.py pattern
-import requests
-
-BASE_URL = 'http://127.0.0.1:8000/api'
-
-def test_endpoint(token):
-    url = f'{BASE_URL}/endpoint/'
-    headers = {'Authorization': f'Token {token}'}
-    response = requests.get(url, headers=headers)
-    return response.json()
-```
-
----
-
-## ⚙️ Settings Configuration
-
-### Environment Variables
-```python
-# .env file
-SECRET_KEY=your-secret-key
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-DATABASE_URL=postgresql://user:password@localhost:5432/db_name
-```
-
-### Load in settings.py
-```python
-from decouple import config, Csv
-
-SECRET_KEY = config('SECRET_KEY')
-DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
-```
-
----
-
-## 📝 Naming Conventions
-
-### Models
-- Use singular names: `Patient`, `Doctor`, `Appointment`
-- Use PascalCase: `PatientProfile`, `DoctorAvailability`
-
-### Variables & Functions
-- Use snake_case: `patient_id`, `get_user_role`
-- Be descriptive: `calculate_total_amount` not `calc_tot`
-
-### URLs
-- Use kebab-case: `/change-password/`, `/doctor-availability/`
-- Use plural for resources: `/patients/`, `/appointments/`
-
-### Fields
-- Use snake_case: `first_name`, `created_at`
-- Boolean fields: start with `is_` or `has_`: `is_active`, `has_insurance`
-
----
-
-## 🚫 Common Mistakes to Avoid
-
-### ❌ DO NOT
-1. Add `role` field to User model (use Groups)
-2. Use `CharField` for file uploads (use `ImageField`/`FileField`)
-3. Forget `on_delete` in ForeignKey/OneToOne
-4. Forget `related_name` in relationships
-5. Hard-code user roles in logic (use Groups)
-6. Return inconsistent API response formats
-7. Skip timestamps (`created_at`, `updated_at`)
-8. Skip `__str__` method in models
-9. Import User model directly (use `settings.AUTH_USER_MODEL`)
-10. Create migrations without checking database state
-
-### ✅ ALWAYS DO
-1. Use Groups for role management
-2. Use `ImageField` with Pillow for images
-3. Include timestamps in all models
-4. Optimize queries with `select_related`/`prefetch_related`
-5. Use consistent API response format
-6. Add proper docstrings
-7. Create migrations before running migrate
-8. Test APIs after implementation
-9. Use transaction.atomic for critical operations
-10. Validate data in serializers
-
----
-
-## 🔄 Development Workflow
-
-### Creating New App
-```bash
-# 1. Create app
-python manage.py startapp appname apps/appname
-
-# 2. Create __init__.py
-echo. > apps/__init__.py
-
-# 3. Update apps.py
-class AppnameConfig(AppConfig):
-    name = 'apps.appname'
-
-# 4. Add to INSTALLED_APPS in settings.py
-'apps.appname.apps.AppnameConfig',
-
-# 5. Create migrations folder
-mkdir apps/appname/migrations
-echo. > apps/appname/migrations/__init__.py
-
-# 6. Develop models, serializers, views, urls
-
-# 7. Make migrations
-python manage.py makemigrations appname
-
-# 8. Migrate
-python manage.py migrate appname
-python manage.py migrate
-
-# 9. Register in admin
-# Update apps/appname/admin.py
-
-# 10. Test
-python test_api.py
-```
-
----
-
-## 📦 Dependencies
-
-### Current Stack
-```
-Django==4.2.7
-djangorestframework==3.14.0
-django-cors-headers==4.3.1
-django-filter==23.5
-python-decouple==3.8
-dj-database-url==2.1.0
-psycopg2-binary==2.9.9
-Pillow==10.1.0              # ✅ For ImageField support
-whitenoise==6.6.0
-```
-
-### When to Add New Packages
-- ✅ Add if it solves a specific problem
-- ✅ Check Django compatibility
-- ✅ Update requirements.txt
-- ❌ Don't add unnecessary packages
-
----
-
-## 🎯 Project Goals & Priorities
-
-### Priority Order
-1. **Authentication & User Management** ✅ Complete
-2. **Doctor Management** 🔜 Next
-3. **Patient Management** 🔜
-4. **Appointment System** 🔜
-5. **Prescriptions** 🔜
-6. **Pharmacy & Inventory** 🔜
-7. **Laboratory** 🔜
-8. **Billing & Payments** 🔜
-9. **Medical Records** 🔜
-
-### Feature Checklist (Per App)
-- [ ] Models defined with all fields
-- [ ] Migrations created and applied
-- [ ] Serializers (List, Detail, Create/Update)
-- [ ] ViewSets with proper permissions
-- [ ] URLs configured
-- [ ] Admin registration
-- [ ] API endpoints tested
-- [ ] Documentation updated
-
----
-
-## 📚 Additional Resources
-
-### Django Docs
-- Models: https://docs.djangoproject.com/en/4.2/topics/db/models/
-- DRF: https://www.django-rest-framework.org/
-
-### Project Docs
-- README.md - Project overview & setup
-- rules.md - This file
-- API_DOCS.md - API documentation (to be created)
-
----
-
-## 🎨 Code Style
-
-### Imports Order
-```python
-# 1. Standard library
-import os
-import datetime
-
-# 2. Django
-from django.db import models
-from django.contrib.auth import get_user_model
-
-# 3. Third party
-from rest_framework import serializers
-
-# 4. Local
-from .models import YourModel
-from apps.accounts.permissions import IsAdmin
-```
-
-### Comments
-```python
-# ✅ Use docstrings for classes and functions
-def function_name(param):
+class Visit(models.Model):
     """
-    Brief description.
+    Represents a patient visit to OPD.
     
-    Args:
-        param: Description
-    
-    Returns:
-        Description
+    Tracks the complete lifecycle from entry to discharge,
+    including billing, clinical notes, and findings.
     """
-    pass
-
-# ✅ Use inline comments for complex logic
-# Calculate BMI using metric system
-bmi = weight / (height ** 2)
 ```
 
----
-
-## 🔍 Debug Mode
-
-### Development
+### View Docstrings:
 ```python
-DEBUG = True  # Show detailed errors
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
-```
-
-### Production
-```python
-DEBUG = False  # Hide errors
-ALLOWED_HOSTS = ['yourdomain.com']
-SECURE_SSL_REDIRECT = True
+class VisitViewSet(viewsets.ModelViewSet):
+    """
+    API endpoints for managing OPD visits.
+    
+    list: Get all visits with filters
+    retrieve: Get single visit details
+    create: Create new walk-in visit
+    update: Update visit details
+    destroy: Delete visit (soft delete preferred)
+    """
 ```
 
 ---
 
-## 🎉 Summary
-
-This rules.md file is your development bible. Follow these guidelines strictly to ensure:
-- ✅ Consistent code quality
-- ✅ Maintainable codebase
-- ✅ Scalable architecture
-- ✅ Security best practices
-- ✅ Team collaboration
-
-**When in doubt, refer back to this file!**
+## 🧪 TESTING REQUIREMENTS
+```
+✅ Write tests for all models
+✅ Write tests for all API endpoints
+✅ Write tests for utility functions
+✅ Test permissions and access control
+✅ Test edge cases and error scenarios
+✅ Aim for >80% code coverage
+```
 
 ---
 
-*Last Updated: October 13, 2025*
-*Project: Hospital Management System*
-*Stack: Django 4.2.7 + DRF + PostgreSQL*
+## 📦 DEPENDENCIES MANAGEMENT
+```
+✅ Pin all package versions in requirements.txt
+✅ Use virtual environment
+✅ Document any system dependencies
+✅ Keep dependencies minimal
+```
+
+---
+
+## 🎨 UI/FRONTEND INTEGRATION
+```
+⚠️ Backend ONLY - No frontend code in this phase
+✅ Design APIs with frontend in mind
+✅ Return proper status codes
+✅ Provide clear error messages
+✅ Document all endpoints
+```
+
+---
+
+## 🔄 WORKFLOW STANDARDS
+
+### Visit Creation Flow:
+```
+1. Patient walks in / Appointment scheduled
+2. Receptionist creates Visit
+3. Patient added to queue
+4. Doctor calls patient
+5. Doctor adds clinical notes/findings
+6. Billing staff creates bill
+7. Payment recorded
+8. Visit marked complete
+```
+
+### Billing Flow:
+```
+1. Visit must exist first
+2. Create OPDBill (consultation) or ProcedureBill (tests)
+3. Add line items (for procedures)
+4. Calculate totals
+5. Record payment (single or multiple modes)
+6. Generate receipt
+7. Update visit payment status
+```
+
+---
+
+## 🚨 COMMON MISTAKES TO AVOID
+```
+❌ Creating custom permission classes
+❌ Putting billing in payments app
+❌ Not using transactions for financial operations
+❌ Forgetting to add related_name
+❌ Not validating user input
+❌ Exposing sensitive data in APIs
+❌ Not paginating list views
+❌ Using print() instead of logging
+❌ Hardcoding values instead of settings
+❌ Not writing docstrings
+```
+
+---
+
+## ✅ CHECKLIST FOR EVERY FILE
+
+Before submitting code, verify:
+- [ ] Follows project structure
+- [ ] Uses Django built-in permissions (no custom)
+- [ ] Has proper docstrings
+- [ ] Has proper error handling
+- [ ] Uses transactions where needed
+- [ ] Has related_name on ForeignKeys
+- [ ] Follows naming conventions
+- [ ] Is properly formatted (PEP 8)
+- [ ] Has no hardcoded values
+- [ ] Returns proper HTTP status codes
+
+---
+
+## 📞 WHEN IN DOUBT
+
+1. Check this rules file first
+2. Follow Django best practices
+3. Follow DRF best practices
+4. Ask for clarification
+5. Don't hallucinate or assume
+
+---
+
+## 🎯 CURRENT FOCUS
+
+**Phase 1: Models**
+- Update existing models (patients, doctors, appointments)
+- Create all OPD models
+- Run migrations
+- Test in admin
+
+**Next Phases:** (in order)
+- Admin setup
+- Utilities & signals
+- Serializers
+- Views
+- URLs
+- Groups & permissions
+- Testing
+
+---
+
+END OF RULES FILE

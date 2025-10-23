@@ -71,6 +71,13 @@ class DoctorProfile(models.Model):
         default=0,
         help_text="Consultation fee in INR"
     )
+    follow_up_fee = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Follow-up consultation fee in INR"
+    )
+
     consultation_duration = models.PositiveIntegerField(
         default=15,
         help_text="Duration in minutes"
@@ -153,6 +160,9 @@ class DoctorProfile(models.Model):
     def clean(self):
         """Validate model fields"""
         errors = {}
+
+        if self.follow_up_fee is not None and self.follow_up_fee < 0:
+            errors['follow_up_fee'] = 'Follow-up fee cannot be negative.'
         
         # Validate license dates
         if self.license_issue_date and self.license_expiry_date:

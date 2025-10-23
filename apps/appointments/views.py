@@ -249,16 +249,44 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         """Check-in to an appointment"""
         appointment = self.get_object()
 
-        # Update status and check-in time
-        appointment.status = Appointment.StatusChoices.CHECKED_IN
-        appointment.checked_in_at = timezone.now()
+        if appointment.status in ['completed', 'cancelled', 'no_show']:
+            return Response({
+                'success': False,
+                'error': f'Cannot check in {appointment.status} appointment'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if appointment.visit:
+            return Response({
+                'success': False,
+                'error': 'Patient already checked in'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create Visit
+        visit = Visit.objects.create(
+            patient=appointment.patient,
+            doctor=appointment.doctor,
+            appointment=appointment,
+            visit_type='follow_up' if appointment.is_follow_up else 'new',
+            status='waiting',
+            created_by=request.user
+        )
+        
+        # Update appointment
+        appointment.visit = visit
+        appointment.check_in_time = timezone.now()
+        appointment.status = 'checked_in'
         appointment.save()
-
-        serializer = self.get_serializer(appointment)
+        
+        # Serialize response
+        from apps.opd.serializers import VisitDetailSerializer
+        visit_serializer = VisitDetailSerializer(visit)
+        appt_serializer = self.get_serializer(appointment)
+        
         return Response({
             'success': True,
-            'message': 'Checked in successfully',
-            'data': serializer.data
+            'message': 'Patient checked in successfully',
+            'appointment': appt_serializer.data,
+            'visit': visit_serializer.data
         })
 
     @extend_schema(
@@ -308,6 +336,31 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             'message': 'Consultation completed successfully',
             'data': serializer.data
         })
+    
+
+    @extend_schema(
+        summary="Get Today's Appointments",
+        description="Get all appointments scheduled for today",
+        tags=['Appointments']
+    )
+    @action(detail=False, methods=['get'])
+    def today(self, request):
+        """Get today's appointments"""
+        from datetime import date
+        today = date.today()
+        
+        appointments = self.get_queryset().filter(
+            appointment_date=today
+        ).order_by('appointment_time')
+        
+        serializer = self.get_serializer(appointments, many=True)
+        return Response({
+            'success': True,
+            'count': appointments.count(),
+            'data': serializer.data
+        })
+    
+    
 
     @extend_schema(
         summary="Get appointment statistics",

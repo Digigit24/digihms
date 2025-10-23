@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     'apps.payments',
     'apps.pharmacy',
     'apps.services',
+    'apps.opd',
 ]
 
 # --- Middleware ---
