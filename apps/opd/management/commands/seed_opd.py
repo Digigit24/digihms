@@ -291,3 +291,5 @@ class Command(BaseCommand):
         self.stdout.write('  Doctors: dr.sharma / dr.patel (password: doctor123)')
         self.stdout.write('  Patients: patient.singh / patient.mehta (password: patient123)')
         self.stdout.write('\nNote: Create Procedure Bills manually from Django Admin')
+
+        
