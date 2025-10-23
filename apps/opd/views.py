@@ -192,23 +192,29 @@ class VisitViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Get Queue Status",
-        description="Get current queue status with waiting patients",
+        description="Get current queue status grouped by patient status",
         tags=['OPD - Visits']
     )
     @action(detail=False, methods=['get'])
     def queue(self, request):
-        """Get current queue status"""
+        """Get current queue status grouped by status"""
         today = date.today()
-        waiting = self.get_queryset().filter(
-            visit_date=today,
-            status__in=['waiting', 'called']
-        ).order_by('entry_time')
         
-        serializer = VisitListSerializer(waiting, many=True)
+        # Get all today's active visits
+        queryset = self.get_queryset().filter(visit_date=today)
+        
+        # Group by status
+        waiting = queryset.filter(status='waiting').order_by('entry_time')
+        called = queryset.filter(status='called').order_by('entry_time')
+        in_consultation = queryset.filter(status='in_consultation').order_by('entry_time')
+        
         return Response({
             'success': True,
-            'count': waiting.count(),
-            'data': serializer.data
+            'data': {
+                'waiting': VisitListSerializer(waiting, many=True).data,
+                'called': VisitListSerializer(called, many=True).data,
+                'in_consultation': VisitListSerializer(in_consultation, many=True).data,
+            }
         })
     
     @extend_schema(
