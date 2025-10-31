@@ -18,12 +18,30 @@ class ProductCategorySerializer(serializers.ModelSerializer):
 class PharmacyProductSerializer(serializers.ModelSerializer):
     """Serializer for Pharmacy Products"""
     category = ProductCategorySerializer(read_only=True)
+    category_id = serializers.IntegerField(required=False)  # Allow category_id to be optional
     is_in_stock = serializers.BooleanField(read_only=True)
     low_stock_warning = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = PharmacyProduct
         fields = '__all__'
+        extra_kwargs = {
+            'product_name': {'required': True},
+            'mrp': {'required': True},
+            'category': {'required': False},
+            'expiry_date': {'required': False},
+            'selling_price': {'required': False},
+            'batch_no': {'required': False},
+            'quantity': {'required': False},
+        }
+    
+    def validate_category_id(self, value):
+        """Ensure category exists, or use default"""
+        if value is None:
+            return 1  # Default to category ID 1
+        if not ProductCategory.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Invalid category ID")
+        return value
 
 
 class CartItemSerializer(serializers.ModelSerializer):

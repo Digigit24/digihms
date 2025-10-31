@@ -28,68 +28,89 @@ class ProductCategory(models.Model):
         return self.name
 
 
-class PharmacyProduct(models.Model):
-    """Pharmacy product model"""
-    product_name = models.CharField(max_length=300)
-    category = models.ForeignKey(
-        ProductCategory, 
-        on_delete=models.PROTECT, 
-        related_name='products'
-    )
-    packing = models.CharField(max_length=100, blank=True, null=True)
-    company = models.CharField(max_length=200)
-    batch_no = models.CharField(max_length=100)
-    
-    quantity = models.PositiveIntegerField(default=0)
-    minimum_stock_level = models.PositiveIntegerField(default=10)
-    
-    expiry_date = models.DateField()
-    
-    mrp = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
-        validators=[MinValueValidator(Decimal('0.00'))]
-    )
-    selling_price = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
-        validators=[MinValueValidator(Decimal('0.00'))]
-    )
-    
-    description = models.TextField(blank=True, null=True)
-    prescription_required = models.BooleanField(default=False)
-    
-    image = models.ImageField(
-        upload_to='pharmacy/products/', 
-        blank=True, 
-        null=True
-    )
-    
-    is_active = models.BooleanField(default=True)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+from rest_framework import serializers
+from .models import (
+    ProductCategory, 
+    PharmacyProduct, 
+    Cart, 
+    CartItem, 
+    PharmacyOrder, 
+    PharmacyOrderItem
+)
+
+class ProductCategorySerializer(serializers.ModelSerializer):
+    """Serializer for Product Categories"""
+    class Meta:
+        model = ProductCategory
+        fields = '__all__'
+
+
+class PharmacyProductSerializer(serializers.ModelSerializer):
+    """Serializer for Pharmacy Products"""
+    category = ProductCategorySerializer(read_only=True)
+    is_in_stock = serializers.BooleanField(read_only=True)
+    low_stock_warning = serializers.BooleanField(read_only=True)
 
     class Meta:
-        db_table = 'pharmacy_products'
-        indexes = [
-            models.Index(fields=['product_name']),
-            models.Index(fields=['company']),
-            models.Index(fields=['expiry_date']),
+        model = PharmacyProduct
+        fields = '__all__'
+
+
+class CartItemSerializer(serializers.ModelSerializer):
+    """Serializer for Cart Items"""
+    product = PharmacyProductSerializer(read_only=True)
+    product_id = serializers.IntegerField(write_only=True)
+    total_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CartItem
+        fields = ['id', 'product', 'product_id', 'quantity', 'price_at_time', 'total_price']
+
+    def get_total_price(self, obj):
+        return obj.quantity * obj.price_at_time
+
+
+class CartSerializer(serializers.ModelSerializer):
+    """Serializer for Cart"""
+    cart_items = CartItemSerializer(many=True, read_only=True)
+    total_items = serializers.IntegerField(read_only=True)
+    total_amount = serializers.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        read_only=True
+    )
+
+    class Meta:
+        model = Cart
+        fields = ['id', 'user', 'cart_items', 'total_items', 'total_amount', 'created_at', 'updated_at']
+
+
+class PharmacyOrderItemSerializer(serializers.ModelSerializer):
+    """Serializer for Order Items"""
+    product = PharmacyProductSerializer(read_only=True)
+    total_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyOrderItem
+        fields = ['id', 'product', 'quantity', 'price_at_time', 'total_price']
+
+    def get_total_price(self, obj):
+        return obj.quantity * obj.price_at_time
+
+
+class PharmacyOrderSerializer(serializers.ModelSerializer):
+    """Serializer for Pharmacy Orders"""
+    order_items = PharmacyOrderItemSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = PharmacyOrder
+        fields = [
+            'id', 'user', 'total_amount', 
+            'status', 'payment_status', 
+            'shipping_address', 'billing_address', 
+            'created_at', 'updated_at',
+            'order_items'
         ]
-        unique_together = ['product_name', 'batch_no']
-
-    def __str__(self):
-        return f"{self.product_name} - {self.batch_no}"
-
-    def is_in_stock(self):
-        """Check if product is in stock"""
-        return self.quantity > 0
-
-    def low_stock_warning(self):
-        """Check if product is below minimum stock level"""
-        return self.quantity <= self.minimum_stock_level
-
 
 class Cart(models.Model):
     """Shopping cart for pharmacy products"""
