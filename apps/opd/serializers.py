@@ -406,7 +406,10 @@ class ProcedureBillCreateUpdateSerializer(serializers.ModelSerializer):
         if request and request.user:
             validated_data['billed_by'] = request.user
         
-        # Create bill (total_amount will be calculated in save)
+        validated_data['total_amount'] = Decimal('0.00')
+        validated_data['payable_amount'] = Decimal('0.00')
+        
+        # Create bill first
         bill = ProcedureBill.objects.create(**validated_data)
         
         # Create items
@@ -416,7 +419,7 @@ class ProcedureBillCreateUpdateSerializer(serializers.ModelSerializer):
                 **item_data
             )
         
-        # Recalculate totals
+        # Now recalculate totals after items are created
         bill.calculate_totals()
         bill.save()
         
