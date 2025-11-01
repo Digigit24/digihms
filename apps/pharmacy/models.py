@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 
+
 class ProductCategory(models.Model):
     """Product category for pharmacy items"""
     CATEGORY_TYPES = [
@@ -28,111 +29,103 @@ class ProductCategory(models.Model):
         return self.name
 
 
-from rest_framework import serializers
-from .models import (
-    ProductCategory, 
-    PharmacyProduct, 
-    Cart, 
-    CartItem, 
-    PharmacyOrder, 
-    PharmacyOrderItem
-)
-
-class ProductCategorySerializer(serializers.ModelSerializer):
-    """Serializer for Product Categories"""
-    class Meta:
-        model = ProductCategory
-        fields = '__all__'
-
-
-class PharmacyProductSerializer(serializers.ModelSerializer):
-    """Serializer for Pharmacy Products"""
-    category = ProductCategorySerializer(read_only=True)
-    is_in_stock = serializers.BooleanField(read_only=True)
-    low_stock_warning = serializers.BooleanField(read_only=True)
-
-    class Meta:
-        model = PharmacyProduct
-        fields = '__all__'
-
-
-class CartItemSerializer(serializers.ModelSerializer):
-    """Serializer for Cart Items"""
-    product = PharmacyProductSerializer(read_only=True)
-    product_id = serializers.IntegerField(write_only=True)
-    total_price = serializers.SerializerMethodField()
-
-    class Meta:
-        model = CartItem
-        fields = ['id', 'product', 'product_id', 'quantity', 'price_at_time', 'total_price']
-
-    def get_total_price(self, obj):
-        return obj.quantity * obj.price_at_time
-
-
-class CartSerializer(serializers.ModelSerializer):
-    """Serializer for Cart"""
-    cart_items = CartItemSerializer(many=True, read_only=True)
-    total_items = serializers.IntegerField(read_only=True)
-    total_amount = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
-        read_only=True
+class PharmacyProduct(models.Model):
+    """Pharmacy product model"""
+    product_name = models.CharField(max_length=255)
+    category = models.ForeignKey(
+        ProductCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products'
     )
-
-    class Meta:
-        model = Cart
-        fields = ['id', 'user', 'cart_items', 'total_items', 'total_amount', 'created_at', 'updated_at']
-
-
-class PharmacyOrderItemSerializer(serializers.ModelSerializer):
-    """Serializer for Order Items"""
-    product = PharmacyProductSerializer(read_only=True)
-    total_price = serializers.SerializerMethodField()
-
-    class Meta:
-        model = PharmacyOrderItem
-        fields = ['id', 'product', 'quantity', 'price_at_time', 'total_price']
-
-    def get_total_price(self, obj):
-        return obj.quantity * obj.price_at_time
-
-
-class PharmacyOrderSerializer(serializers.ModelSerializer):
-    """Serializer for Pharmacy Orders"""
-    order_items = PharmacyOrderItemSerializer(many=True, read_only=True)
+    company = models.CharField(max_length=255, blank=True, null=True)
+    batch_no = models.CharField(max_length=100, blank=True, null=True)
     
+    # Pricing
+    mrp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    selling_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        blank=True,
+        null=True
+    )
+    
+    # Inventory
+    quantity = models.PositiveIntegerField(default=0)
+    minimum_stock_level = models.PositiveIntegerField(default=10)
+    
+    # Dates
+    expiry_date = models.DateField(blank=True, null=True)
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
-        model = PharmacyOrder
-        fields = [
-            'id', 'user', 'total_amount', 
-            'status', 'payment_status', 
-            'shipping_address', 'billing_address', 
-            'created_at', 'updated_at',
-            'order_items'
+        db_table = 'pharmacy_products'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['product_name']),
+            models.Index(fields=['company']),
+            models.Index(fields=['batch_no']),
         ]
+
+    def __str__(self):
+        return self.product_name
+
+    @property
+    def is_in_stock(self):
+        """Check if product is in stock"""
+        return self.quantity > 0
+
+    @property
+    def low_stock_warning(self):
+        """Check if product stock is below minimum level"""
+        return self.quantity <= self.minimum_stock_level
+
+    def save(self, *args, **kwargs):
+        """Auto-set selling price if not provided"""
+        if not self.selling_price:
+            self.selling_price = self.mrp
+        super().save(*args, **kwargs)
+
 
 class Cart(models.Model):
     """Shopping cart for pharmacy products"""
     user = models.OneToOneField(
-        settings.AUTH_USER_MODEL, 
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='pharmacy_cart'
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'pharmacy_carts'
+
     def __str__(self):
         return f"Cart of {self.user.username}"
 
     @property
     def total_items(self):
-        return self.cart_items.count()
+        """Get total number of items in cart"""
+        return self.cart_items.aggregate(
+            total=models.Sum('quantity')
+        )['total'] or 0
 
     @property
     def total_amount(self):
+        """Calculate total cart amount"""
         return sum(
-            item.product.selling_price * item.quantity 
+            item.price_at_time * item.quantity
             for item in self.cart_items.all()
         )
 
@@ -140,22 +133,23 @@ class Cart(models.Model):
 class CartItem(models.Model):
     """Individual items in the shopping cart"""
     cart = models.ForeignKey(
-        Cart, 
-        on_delete=models.CASCADE, 
+        Cart,
+        on_delete=models.CASCADE,
         related_name='cart_items'
     )
     product = models.ForeignKey(
-        PharmacyProduct, 
+        PharmacyProduct,
         on_delete=models.CASCADE
     )
     quantity = models.PositiveIntegerField(default=1)
     price_at_time = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
+        max_digits=10,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
 
     class Meta:
+        db_table = 'pharmacy_cart_items'
         unique_together = ['cart', 'product']
 
     def save(self, *args, **kwargs):
@@ -166,6 +160,11 @@ class CartItem(models.Model):
 
     def __str__(self):
         return f"{self.product.product_name} - {self.quantity}"
+
+    @property
+    def total_price(self):
+        """Calculate total price for this cart item"""
+        return self.quantity * self.price_at_time
 
 
 class PharmacyOrder(models.Model):
@@ -186,27 +185,27 @@ class PharmacyOrder(models.Model):
     ]
 
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         related_name='pharmacy_orders'
     )
     
     total_amount = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
+        max_digits=10,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
     
     status = models.CharField(
-        max_length=20, 
-        choices=STATUS_CHOICES, 
+        max_length=20,
+        choices=STATUS_CHOICES,
         default='pending'
     )
     
     payment_status = models.CharField(
-        max_length=20, 
-        choices=PAYMENT_STATUS_CHOICES, 
+        max_length=20,
+        choices=PAYMENT_STATUS_CHOICES,
         default='pending'
     )
     
@@ -216,6 +215,10 @@ class PharmacyOrder(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'pharmacy_orders'
+        ordering = ['-created_at']
+
     def __str__(self):
         return f"Order {self.id} - {self.get_status_display()}"
 
@@ -223,24 +226,28 @@ class PharmacyOrder(models.Model):
 class PharmacyOrderItem(models.Model):
     """Items in a pharmacy order"""
     order = models.ForeignKey(
-        PharmacyOrder, 
-        on_delete=models.CASCADE, 
+        PharmacyOrder,
+        on_delete=models.CASCADE,
         related_name='order_items'
     )
     product = models.ForeignKey(
-        PharmacyProduct, 
+        PharmacyProduct,
         on_delete=models.PROTECT
     )
     quantity = models.PositiveIntegerField()
     price_at_time = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
+        max_digits=10,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
+
+    class Meta:
+        db_table = 'pharmacy_order_items'
 
     def __str__(self):
         return f"{self.product.product_name} - {self.quantity}"
 
     @property
     def total_price(self):
+        """Calculate total price for this order item"""
         return self.quantity * self.price_at_time
