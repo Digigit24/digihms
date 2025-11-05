@@ -2,10 +2,13 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
+    ClinicalNoteTemplate, ClinicalNoteTemplateField, ClinicalNoteTemplateFieldOption, 
+    ClinicalNoteTemplateFieldResponse, ClinicalNoteTemplateGroup, ClinicalNoteTemplateResponse, 
     Visit, OPDBill, ProcedureMaster, ProcedurePackage,
     ProcedureBill, ProcedureBillItem, ClinicalNote,
     VisitFinding, VisitAttachment
 )
+from django import forms
 
 
 @admin.register(Visit)
@@ -356,7 +359,6 @@ class ProcedureBillItemInline(admin.TabularInline):
         'note',
         'item_order',
     ]
-    readonly_fields = ['amount']
     autocomplete_fields = ['procedure']
 
 
@@ -396,7 +398,12 @@ class ProcedureBillAdmin(admin.ModelAdmin):
         'updated_at',
     ]
     autocomplete_fields = ['visit', 'doctor']
-    inlines = [ProcedureBillItemInline]
+    
+    def get_inlines(self, request, obj=None):
+        """Only show inlines when editing an existing object."""
+        if obj:  # obj exists, so we're on the change page
+            return [ProcedureBillItemInline]
+        return []  # No inlines when creating new object
     
     fieldsets = (
         ('Bill Information', {
@@ -679,16 +686,391 @@ class VisitAttachmentAdmin(admin.ModelAdmin):
         return obj.get_file_size() or '-'
     file_size_display.short_description = 'File Size'
 
+    
+@admin.register(ClinicalNoteTemplateGroup)
+class ClinicalNoteTemplateGroupAdmin(admin.ModelAdmin):
+    """Admin interface for Template Groups."""
+    
+    list_display = [
+        'name',
+        'display_order',
+        'template_count',
+        'is_active_badge',
+        'created_at',
+    ]
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['name', 'description']
+    ordering = ['display_order', 'name']
+    
+    fieldsets = (
+        ('Group Information', {
+            'fields': ('name', 'description', 'display_order')
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+    )
+    
+    def template_count(self, obj):
+        """Display number of templates in this group."""
+        count = obj.templates.count()
+        return format_html(
+            '<span style="background-color: #007bff; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+            count
+        )
+    template_count.short_description = 'Templates'
+    
+    def is_active_badge(self, obj):
+        """Display active status with badge."""
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+            'green' if obj.is_active else 'red',
+            'Active' if obj.is_active else 'Inactive'
+        )
+    is_active_badge.short_description = 'Status'
 
-# Enable autocomplete for Patient and Doctor models in other apps
-# Add these to patients/admin.py and doctors/admin.py respectively
 
-# In patients/admin.py:
-# @admin.register(Patient)
-# class PatientAdmin(admin.ModelAdmin):
-#     search_fields = ['first_name', 'last_name', 'phone', 'email']
+# ============================================================================
+# TEMPLATE FIELD OPTION INLINE
+# ============================================================================
 
-# In doctors/admin.py:
-# @admin.register(Doctor)
-# class DoctorAdmin(admin.ModelAdmin):
-#     search_fields = ['first_name', 'last_name', 'phone', 'email', 'specialization']
+class ClinicalNoteTemplateFieldOptionInline(admin.TabularInline):
+    """Inline admin for field options."""
+    
+    model = ClinicalNoteTemplateFieldOption
+    extra = 1
+    fields = [
+        'option_value',
+        'option_label',
+        'display_order',
+        'is_active',
+        'metadata',
+    ]
+    ordering = ['display_order', 'option_label']
+
+
+# ============================================================================
+# TEMPLATE FIELD INLINE
+# ============================================================================
+
+class ClinicalNoteTemplateFieldInline(admin.StackedInline):
+    """Inline admin for template fields."""
+    
+    model = ClinicalNoteTemplateField
+    extra = 1
+    fields = [
+        ('field_name', 'field_label'),
+        ('field_type', 'is_required'),
+        ('placeholder', 'help_text'),
+        'default_value',
+        ('display_order', 'column_width'),
+        ('min_value', 'max_value'),
+        ('min_length', 'max_length'),
+        'show_condition',
+        'is_active',
+    ]
+    ordering = ['display_order']
+    
+    class Media:
+        css = {
+            'all': ('admin/css/custom_admin.css',)
+        }
+        js = ('admin/js/template_field_admin.js',)
+
+
+# ============================================================================
+# TEMPLATE FIELD ADMIN (Separate)
+# ============================================================================
+
+@admin.register(ClinicalNoteTemplateField)
+class ClinicalNoteTemplateFieldAdmin(admin.ModelAdmin):
+    """Standalone admin for managing template fields."""
+    
+    list_display = [
+        'field_label',
+        'template',
+        'field_type_badge',
+        'is_required_badge',
+        'display_order',
+        'option_count',
+        'is_active_badge',
+    ]
+    list_filter = [
+        'field_type',
+        'is_required',
+        'is_active',
+        'template__group',
+        'template',
+    ]
+    search_fields = [
+        'field_name',
+        'field_label',
+        'template__name',
+    ]
+    ordering = ['template', 'display_order']
+    inlines = [ClinicalNoteTemplateFieldOptionInline]
+    
+    fieldsets = (
+        ('Field Definition', {
+            'fields': (
+                'template',
+                ('field_name', 'field_label'),
+                'field_type',
+            )
+        }),
+        ('Field Configuration', {
+            'fields': (
+                'help_text',
+                'placeholder',
+                'default_value',
+            )
+        }),
+        ('Validation Rules', {
+            'fields': (
+                'is_required',
+                ('min_value', 'max_value'),
+                ('min_length', 'max_length'),
+            )
+        }),
+        ('Display Configuration', {
+            'fields': (
+                ('display_order', 'column_width'),
+                'show_condition',
+            )
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+    )
+    
+    def field_type_badge(self, obj):
+        """Display field type with badge."""
+        colors = {
+            'text': '#6c757d',
+            'number': '#007bff',
+            'boolean': '#28a745',
+            'date': '#fd7e14',
+            'select': '#17a2b8',
+            'multiselect': '#6610f2',
+            'image': '#e83e8c',
+        }
+        color = colors.get(obj.field_type, '#6c757d')
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 10px; border-radius: 3px; font-size: 11px;">{}</span>',
+            color,
+            obj.get_field_type_display()
+        )
+    field_type_badge.short_description = 'Type'
+    
+    def is_required_badge(self, obj):
+        """Display required status."""
+        if obj.is_required:
+            return format_html(
+                '<span style="background-color: #dc3545; color: white; padding: 3px 10px; border-radius: 3px; font-size: 11px;">Required</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 3px 10px; border-radius: 3px; font-size: 11px;">Optional</span>'
+        )
+    is_required_badge.short_description = 'Required'
+    
+    def option_count(self, obj):
+        """Display number of options."""
+        count = obj.options.count()
+        if count > 0:
+            return format_html(
+                '<span style="background-color: #17a2b8; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+                count
+            )
+        return '-'
+    option_count.short_description = 'Options'
+    
+    def is_active_badge(self, obj):
+        """Display active status."""
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+            'green' if obj.is_active else 'red',
+            'Active' if obj.is_active else 'Inactive'
+        )
+    is_active_badge.short_description = 'Status'
+
+
+# ============================================================================
+# TEMPLATE ADMIN
+# ============================================================================
+
+@admin.register(ClinicalNoteTemplate)
+class ClinicalNoteTemplateAdmin(admin.ModelAdmin):
+    """Admin interface for Clinical Note Templates."""
+    
+    list_display = [
+        'code',
+        'name',
+        'group',
+        'field_count',
+        'response_count',
+        'is_active_badge',
+        'display_order',
+    ]
+    list_filter = [
+        'is_active',
+        'group',
+        'created_at',
+    ]
+    search_fields = [
+        'name',
+        'code',
+        'description',
+    ]
+    ordering = ['display_order', 'name']
+    inlines = [ClinicalNoteTemplateFieldInline]
+    
+    fieldsets = (
+        ('Template Information', {
+            'fields': (
+                ('name', 'code'),
+                'group',
+                'description',
+            )
+        }),
+        ('Display Settings', {
+            'fields': (
+                'display_order',
+                'is_active',
+            )
+        }),
+    )
+    
+    def field_count(self, obj):
+        """Display number of fields."""
+        count = obj.fields.filter(is_active=True).count()
+        return format_html(
+            '<span style="background-color: #007bff; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+            count
+        )
+    field_count.short_description = 'Fields'
+    
+    def response_count(self, obj):
+        """Display number of responses."""
+        count = obj.responses.count()
+        if count > 0:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+                count
+            )
+        return '0'
+    response_count.short_description = 'Responses'
+    
+    def is_active_badge(self, obj):
+        """Display active status."""
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+            'green' if obj.is_active else 'red',
+            'Active' if obj.is_active else 'Inactive'
+        )
+    is_active_badge.short_description = 'Status'
+
+
+# ============================================================================
+# TEMPLATE RESPONSE FIELD INLINE
+# ============================================================================
+
+class ClinicalNoteTemplateFieldResponseInline(admin.TabularInline):
+    """Inline admin for field responses."""
+    
+    model = ClinicalNoteTemplateFieldResponse
+    extra = 0
+    can_delete = False
+    fields = [
+        'field',
+        'get_field_type',
+        'value_display',
+    ]
+    readonly_fields = [
+        'field',
+        'get_field_type',
+        'value_display',
+    ]
+    
+    def get_field_type(self, obj):
+        """Display field type."""
+        return obj.field.get_field_type_display()
+    get_field_type.short_description = 'Type'
+    
+    def value_display(self, obj):
+        """Display the value."""
+        return obj.get_display_value()
+    value_display.short_description = 'Value'
+
+
+# ============================================================================
+# TEMPLATE RESPONSE ADMIN
+# ============================================================================
+
+@admin.register(ClinicalNoteTemplateResponse)
+class ClinicalNoteTemplateResponseAdmin(admin.ModelAdmin):
+    """Admin interface for Template Responses."""
+    
+    list_display = [
+        'visit',
+        'template',
+        'response_date',
+        'status_badge',
+        'filled_by',
+        'reviewed_by',
+    ]
+    list_filter = [
+        'status',
+        'template',
+        'response_date',
+    ]
+    search_fields = [
+        'visit__visit_number',
+        'visit__patient__first_name',
+        'visit__patient__last_name',
+        'template__name',
+    ]
+    ordering = ['-response_date']
+    readonly_fields = [
+        'response_date',
+        'response_summary',
+        'created_at',
+        'updated_at',
+    ]
+    inlines = [ClinicalNoteTemplateFieldResponseInline]
+    
+    fieldsets = (
+        ('Response Information', {
+            'fields': (
+                'visit',
+                'template',
+                'response_date',
+                'status',
+            )
+        }),
+        ('Summary', {
+            'fields': ('response_summary',),
+            'classes': ('collapse',)
+        }),
+        ('Audit', {
+            'fields': (
+                'filled_by',
+                'reviewed_by',
+                'reviewed_at',
+            )
+        }),
+    )
+    
+    def status_badge(self, obj):
+        """Display status with badge."""
+        colors = {
+            'draft': '#6c757d',
+            'completed': '#007bff',
+            'reviewed': '#28a745',
+            'archived': '#dc3545',
+        }
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 10px; border-radius: 3px;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display()
+        )
+    status_badge.short_description = 'Status'

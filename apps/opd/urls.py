@@ -3,6 +3,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ClinicalNoteTemplateFieldViewSet,
+    ClinicalNoteTemplateGroupViewSet,
+    ClinicalNoteTemplateResponseViewSet,
+    ClinicalNoteTemplateViewSet,
     VisitViewSet,
     OPDBillViewSet,
     ProcedureMasterViewSet,
@@ -25,6 +29,10 @@ router.register(r'procedure-bills', ProcedureBillViewSet, basename='procedure-bi
 router.register(r'clinical-notes', ClinicalNoteViewSet, basename='clinical-note')
 router.register(r'visit-findings', VisitFindingViewSet, basename='visit-finding')
 router.register(r'visit-attachments', VisitAttachmentViewSet, basename='visit-attachment')
+router.register(r'template-groups', ClinicalNoteTemplateGroupViewSet, basename='template-group')
+router.register(r'templates', ClinicalNoteTemplateViewSet, basename='template')
+router.register(r'template-fields', ClinicalNoteTemplateFieldViewSet, basename='template-field')
+router.register(r'template-responses', ClinicalNoteTemplateResponseViewSet, basename='template-response')
 
 urlpatterns = [
     path('', include(router.urls)),
