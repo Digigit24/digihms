@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
 import os
+import uuid
 
 User = get_user_model()
 
@@ -41,6 +42,13 @@ class Visit(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit_number = models.CharField(
         max_length=50,
         unique=True,
@@ -250,6 +258,13 @@ class OPDBill(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit = models.OneToOneField(
         Visit,
         on_delete=models.CASCADE,
@@ -456,6 +471,13 @@ class ProcedureMaster(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(max_length=200)
     code = models.CharField(
         max_length=50,
@@ -507,6 +529,13 @@ class ProcedurePackage(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(max_length=200)
     code = models.CharField(
         max_length=50,
@@ -598,6 +627,13 @@ class ProcedureBill(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit = models.ForeignKey(
         Visit,
         on_delete=models.CASCADE,
@@ -786,6 +822,13 @@ class ProcedureBillItem(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     procedure_bill = models.ForeignKey(
         ProcedureBill,
         on_delete=models.CASCADE,
@@ -859,6 +902,13 @@ class ClinicalNote(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit = models.OneToOneField(
         Visit,
         on_delete=models.CASCADE,
@@ -970,6 +1020,13 @@ class VisitFinding(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit = models.ForeignKey(
         Visit,
         on_delete=models.CASCADE,
@@ -1183,6 +1240,13 @@ class VisitAttachment(models.Model):
     
     # Primary Fields
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit = models.ForeignKey(
         Visit,
         on_delete=models.CASCADE,
@@ -1257,6 +1321,13 @@ class ClinicalNoteTemplateGroup(models.Model):
     """
     
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(
         max_length=200,
         unique=True,
@@ -1291,6 +1362,13 @@ class ClinicalNoteTemplate(models.Model):
     """
     
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(
         max_length=200,
         unique=True,
@@ -1355,6 +1433,13 @@ class ClinicalNoteTemplateField(models.Model):
     ]
     
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     template = models.ForeignKey(
         ClinicalNoteTemplate,
         on_delete=models.CASCADE,
@@ -1464,6 +1549,13 @@ class ClinicalNoteTemplateFieldOption(models.Model):
     """
     
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     field = models.ForeignKey(
         ClinicalNoteTemplateField,
         on_delete=models.CASCADE,
@@ -1514,6 +1606,13 @@ class ClinicalNoteTemplateResponse(models.Model):
     ]
     
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     visit = models.ForeignKey(
         Visit,
         on_delete=models.CASCADE,
@@ -1592,6 +1691,13 @@ class ClinicalNoteTemplateFieldResponse(models.Model):
     """
     
     id = models.AutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     response = models.ForeignKey(
         ClinicalNoteTemplateResponse,
         on_delete=models.CASCADE,

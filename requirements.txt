@@ -22,3 +22,4 @@ tzdata==2025.2
 uritemplate==4.2.0
 whitenoise==6.6.0
 django-import-export
+PyJWT==2.8.0

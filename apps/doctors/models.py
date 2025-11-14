@@ -2,10 +2,17 @@ from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+import uuid
 
 
 class Specialty(models.Model):
     """Medical specialties"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=20, unique=True)
     description = models.TextField(blank=True, null=True)
@@ -41,6 +48,12 @@ class DoctorProfile(models.Model):
         ('inactive', 'Inactive'),
     ]
 
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     # Link to User (REQUIRED - doctors must be able to login)
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -198,6 +211,12 @@ class DoctorAvailability(models.Model):
         ('sunday', 'Sunday'),
     ]
 
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     doctor = models.ForeignKey(
         DoctorProfile,
         on_delete=models.CASCADE,

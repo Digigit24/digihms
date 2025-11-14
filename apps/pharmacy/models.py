@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+import uuid
 
 
 class ProductCategory(models.Model):
@@ -11,6 +12,12 @@ class ProductCategory(models.Model):
         ('healthcare_product', 'Healthcare Product'),
         ('medical_equipment', 'Medical Equipment')
     ]
+
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
 
     name = models.CharField(max_length=200, unique=True)
     description = models.TextField(blank=True, null=True)
@@ -31,6 +38,12 @@ class ProductCategory(models.Model):
 
 class PharmacyProduct(models.Model):
     """Pharmacy product model"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     product_name = models.CharField(max_length=255)
     category = models.ForeignKey(
         ProductCategory,
@@ -100,6 +113,12 @@ class PharmacyProduct(models.Model):
 
 class Cart(models.Model):
     """Shopping cart for pharmacy products"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -132,6 +151,12 @@ class Cart(models.Model):
 
 class CartItem(models.Model):
     """Individual items in the shopping cart"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     cart = models.ForeignKey(
         Cart,
         on_delete=models.CASCADE,
@@ -184,6 +209,12 @@ class PharmacyOrder(models.Model):
         ('refunded', 'Refunded')
     ]
 
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -225,6 +256,12 @@ class PharmacyOrder(models.Model):
 
 class PharmacyOrderItem(models.Model):
     """Items in a pharmacy order"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     order = models.ForeignKey(
         PharmacyOrder,
         on_delete=models.CASCADE,

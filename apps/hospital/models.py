@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.exceptions import ValidationError
+import uuid
 
 
 class Hospital(models.Model):
@@ -11,6 +12,12 @@ class Hospital(models.Model):
         ('clinic', 'Clinic'),
         ('hospital', 'Hospital'),
     ]
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
     
     # Basic Information
     name = models.CharField(max_length=200)

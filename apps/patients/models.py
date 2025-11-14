@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import RegexValidator
 import datetime
+import uuid
 
 
 class PatientProfile(models.Model):
@@ -49,10 +50,16 @@ class PatientProfile(models.Model):
         related_name='patient_profile'
     )
     
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     # Unique Identifier
     patient_id = models.CharField(
-        max_length=20, 
-        unique=True, 
+        max_length=20,
+        unique=True,
         editable=False
     )
     
@@ -257,6 +264,12 @@ class PatientProfile(models.Model):
 
 class PatientVitals(models.Model):
     """Patient vital signs"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     patient = models.ForeignKey(
         PatientProfile,
         on_delete=models.CASCADE,
@@ -352,6 +365,12 @@ class PatientAllergy(models.Model):
         ('contact', 'Contact'),
         ('other', 'Other'),
     ]
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
     
     patient = models.ForeignKey(
         PatientProfile,

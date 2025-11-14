@@ -20,6 +20,12 @@ class FeeType(models.Model):
         ('misc', 'Miscellaneous Fee')
     ]
 
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=20, unique=True)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
@@ -74,9 +80,16 @@ class Order(models.Model):
 
     # Unique Identifiers
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     order_number = models.CharField(
-        max_length=50, 
-        unique=True, 
+        max_length=50,
+        unique=True,
         editable=False
     )
     
@@ -215,9 +228,15 @@ class OrderItem(models.Model):
     Polymorphic Order Item Model
     Can reference different types of services
     """
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     order = models.ForeignKey(
-        Order, 
-        on_delete=models.CASCADE, 
+        Order,
+        on_delete=models.CASCADE,
         related_name='order_items'
     )
     
@@ -261,8 +280,14 @@ class OrderFee(models.Model):
     """
     Intermediate model to track fees applied to an order
     """
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     order = models.ForeignKey(
-        Order, 
+        Order,
         on_delete=models.CASCADE,
         related_name='order_fee_details'
     )

@@ -19,6 +19,12 @@ class PaymentCategory(models.Model):
         ('adjustment', 'Accounting Adjustment')
     ]
 
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+
     name = models.CharField(max_length=100, unique=True)
     category_type = models.CharField(
         max_length=20, 
@@ -59,9 +65,15 @@ class Transaction(models.Model):
 
     # Unique Identifiers
     id = models.UUIDField(
-        primary_key=True, 
-        default=uuid.uuid4, 
+        primary_key=True,
+        default=uuid.uuid4,
         editable=False
+    )
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
     )
     transaction_number = models.CharField(
         max_length=50, 
@@ -182,6 +194,12 @@ class AccountingPeriod(models.Model):
         ('annual', 'Annual')
     ]
 
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(max_length=100)
     start_date = models.DateField()
     end_date = models.DateField()

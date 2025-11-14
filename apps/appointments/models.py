@@ -3,10 +3,17 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
+import uuid
 
 
 class AppointmentType(models.Model):
     """Types of medical appointments"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True, null=True)
     duration_default = models.PositiveIntegerField(default=15)  # Default duration in minutes
@@ -45,9 +52,16 @@ class Appointment(models.Model):
 
     # Unique Identifiers
     id = models.BigAutoField(primary_key=True)
+    
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     appointment_id = models.CharField(
-        max_length=36, 
-        unique=True, 
+        max_length=36,
+        unique=True,
         editable=False
     )
 

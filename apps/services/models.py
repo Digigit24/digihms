@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+import uuid
 
 
 class ServiceCategory(models.Model):
@@ -12,6 +13,12 @@ class ServiceCategory(models.Model):
         ('home_care', 'Home Healthcare'),
         ('other', 'Other')
     ]
+
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True, null=True)
@@ -37,6 +44,12 @@ class ServiceCategory(models.Model):
 
 class BaseService(models.Model):
     """Abstract base service model"""
+    # Tenant Information
+    tenant_id = models.UUIDField(
+        db_index=True,
+        help_text="Tenant identifier for multi-tenancy"
+    )
+    
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
     base_price = models.DecimalField(

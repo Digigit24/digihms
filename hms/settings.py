@@ -1,8 +1,7 @@
 import os
 from pathlib import Path
 from decouple import config, Csv
-import os
-from pathlib import Path
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -12,6 +11,10 @@ DEBUG = True
 # DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=Csv())
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+
+# --- JWT Configuration (MUST MATCH SuperAdmin) ---
+JWT_SECRET_KEY = config('JWT_SECRET_KEY')
+JWT_ALGORITHM = config('JWT_ALGORITHM', default='HS256')
 
 
 
@@ -73,6 +76,7 @@ INSTALLED_APPS = [
     'import_export',
 
     # Local
+    'common',  # Add common app for migrations
     'apps.accounts',
     'apps.doctors',
     'apps.patients',
@@ -93,6 +97,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'common.middleware.JWTAuthenticationMiddleware',  # JWT Auth before Django Auth
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -118,19 +123,31 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'hms.wsgi.application'
 
-# --- Database (use discrete env vars) ---
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME':     config('DB_NAME'),
-        'USER':     config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST':     config('DB_HOST', default='localhost'),
-        'PORT':     config('DB_PORT', default='5432'),
-        'CONN_MAX_AGE': 600,
-        'OPTIONS': {},
+# --- Database Configuration ---
+# Use DATABASE_URL if available (recommended for Neon), otherwise fall back to discrete variables
+DATABASE_URL = config('DATABASE_URL', default=None)
+
+if DATABASE_URL:
+    DATABASES = {
+        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
-}
+else:
+    # Fallback to discrete environment variables
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME':     config('DB_NAME'),
+            'USER':     config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST':     config('DB_HOST', default='localhost'),
+            'PORT':     config('DB_PORT', default='5432'),
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {},
+        }
+    }
+
+# --- Database Router ---
+DATABASE_ROUTERS = ['common.database_router.HMSDatabaseRouter']
 
 # --- Auth / Passwords ---
 AUTH_USER_MODEL = 'accounts.User'
