@@ -8,6 +8,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class TenantUserMeta:
+    """Mock _meta class for TenantUser to satisfy Django's expectations"""
+    pk = None
+
+    @property
+    def label(self):
+        return 'TenantUser'
+
+    @property
+    def label_lower(self):
+        return 'tenantuser'
+
+
 class TenantUser:
     """
     A custom user class that mimics Django's User model for admin authentication
@@ -28,6 +41,8 @@ class TenantUser:
         self.permissions = user_data.get('permissions', {})
         self.enabled_modules = user_data.get('enabled_modules', [])
         self._state = type('obj', (object,), {'adding': False, 'db': None})()
+        self._meta = TenantUserMeta()
+        self._meta.pk = self.pk
 
     def __str__(self):
         return self.email
@@ -85,6 +100,35 @@ class TenantUser:
                 perms.add(f"{app_label}.{perm}")
 
         return perms
+
+    def save(self, *args, **kwargs):
+        """No-op save method - TenantUser is not stored in database"""
+        pass
+
+    def delete(self, *args, **kwargs):
+        """No-op delete method - TenantUser is not stored in database"""
+        pass
+
+    def set_password(self, raw_password):
+        """No-op - passwords are managed by SuperAdmin"""
+        pass
+
+    def check_password(self, raw_password):
+        """No-op - password checking is done by SuperAdmin"""
+        return False
+
+    @property
+    def password(self):
+        """Return empty password - not used for TenantUser"""
+        return ''
+
+    def get_user_permissions(self, obj=None):
+        """Get user-specific permissions"""
+        return self.get_all_permissions(obj)
+
+    def get_group_permissions(self, obj=None):
+        """Get group permissions - not implemented for TenantUser"""
+        return set()
 
 
 class SuperAdminAuthBackend(BaseBackend):
