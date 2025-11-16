@@ -8,9 +8,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class MockPKField:
+    """Mock primary key field for TenantUser"""
+    def __init__(self):
+        self.name = 'id'
+        self.attname = 'id'
+        self.column = 'id'
+
+    def value_to_string(self, obj):
+        """Convert the field value to string for serialization"""
+        return str(obj.pk)
+
+    def get_prep_value(self, value):
+        """Return the value prepared for database storage"""
+        return value
+
+
 class TenantUserMeta:
     """Mock _meta class for TenantUser to satisfy Django's expectations"""
-    pk = None
+    def __init__(self):
+        self.pk = MockPKField()
+        self.abstract = False
+        self.swapped = False
 
     @property
     def label(self):
@@ -42,7 +61,6 @@ class TenantUser:
         self.enabled_modules = user_data.get('enabled_modules', [])
         self._state = type('obj', (object,), {'adding': False, 'db': None})()
         self._meta = TenantUserMeta()
-        self._meta.pk = self.pk
 
     def __str__(self):
         return self.email
