@@ -1,10 +1,10 @@
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from django.utils.html import format_html
 from .models import Hospital
 
 
-@admin.register(Hospital)
-class HospitalAdmin(admin.ModelAdmin):
+class HospitalAdmin(TenantModelAdmin):
     """Hospital configuration admin"""
     
     list_display = [
@@ -58,3 +58,7 @@ class HospitalAdmin(admin.ModelAdmin):
             request, object_id, form_url, extra_context=extra_context
         )
 
+
+
+# Register with tenant_admin_site
+tenant_admin_site.register(Hospital, HospitalAdmin)

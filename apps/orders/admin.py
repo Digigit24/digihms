@@ -1,4 +1,5 @@
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from django.utils.html import format_html
 from .models import Order, OrderItem, OrderFee, FeeType
 
@@ -31,8 +32,7 @@ class OrderItemInline(admin.TabularInline):
         return request.user.is_superuser
 
 
-@admin.register(FeeType)
-class FeeTypeAdmin(admin.ModelAdmin):
+class FeeTypeAdmin(TenantModelAdmin):
     """Admin configuration for Fee Types"""
     list_display = [
         'name', 
@@ -54,8 +54,7 @@ class FeeTypeAdmin(admin.ModelAdmin):
     ]
 
 
-@admin.register(Order)
-class OrderAdmin(admin.ModelAdmin):
+class OrderAdmin(TenantModelAdmin):
     """Comprehensive Order Management in Admin"""
     list_display = [
         'order_number', 
@@ -164,8 +163,7 @@ class OrderAdmin(admin.ModelAdmin):
         obj.calculate_totals()
 
 
-@admin.register(OrderItem)
-class OrderItemAdmin(admin.ModelAdmin):
+class OrderItemAdmin(TenantModelAdmin):
     """Admin configuration for Order Items"""
     list_display = [
         'order', 
@@ -213,3 +211,8 @@ class OrderItemAdmin(admin.ModelAdmin):
             'order', 
             'content_type'
         )
+
+# Register with tenant_admin_site
+tenant_admin_site.register(FeeType, FeeTypeAdmin)
+tenant_admin_site.register(Order, OrderAdmin)
+tenant_admin_site.register(OrderItem, OrderItemAdmin)

@@ -1,0 +1,54 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; {{ app_list.0.name }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    {% if tenant_name %}
+    <div class="tenant-info">
+        <h2>🏥 {{ app_list.0.name }}</h2>
+        <div class="tenant-details">
+            <div class="tenant-detail">
+                <div class="tenant-detail-label">Hospital/Tenant</div>
+                <div class="tenant-detail-value">{{ tenant_name }}</div>
+            </div>
+            <div class="tenant-detail">
+                <div class="tenant-detail-label">User</div>
+                <div class="tenant-detail-value">{{ user_email }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% for app in app_list %}
+    <div class="module">
+        <h2>{{ app.name }}</h2>
+        <table summary="{% blocktrans with name=app.name %}Models available in the {{ name }} application.{% endblocktrans %}">
+            {% for model in app.models %}
+            <tr class="model-{{ model.object_name|lower }}">
+                <td>
+                    <strong>{{ model.name }}</strong>
+                    {% if model.add_url %}
+                    <a href="{{ model.add_url }}" class="addlink">
+                        {% trans 'Add' %}
+                    </a>
+                    {% endif %}
+                    {% if model.admin_url %}
+                    <a href="{{ model.admin_url }}" class="changelink">
+                        {% trans 'Change' %}
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

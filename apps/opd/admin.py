@@ -1,5 +1,6 @@
 # opd/admin.py
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from django.utils.html import format_html
 from .models import (
     ClinicalNoteTemplate, ClinicalNoteTemplateField, ClinicalNoteTemplateFieldOption, 
@@ -11,8 +12,7 @@ from .models import (
 from django import forms
 
 
-@admin.register(Visit)
-class VisitAdmin(admin.ModelAdmin):
+class VisitAdmin(TenantModelAdmin):
     """Admin interface for Visit model."""
     
     list_display = [
@@ -106,8 +106,7 @@ class VisitAdmin(admin.ModelAdmin):
     payment_status_badge.short_description = 'Payment Status'
 
 
-@admin.register(OPDBill)
-class OPDBillAdmin(admin.ModelAdmin):
+class OPDBillAdmin(TenantModelAdmin):
     """Admin interface for OPDBill model."""
     
     list_display = [
@@ -206,8 +205,7 @@ class OPDBillAdmin(admin.ModelAdmin):
     payment_status_badge.short_description = 'Payment Status'
 
 
-@admin.register(ProcedureMaster)
-class ProcedureMasterAdmin(admin.ModelAdmin):
+class ProcedureMasterAdmin(TenantModelAdmin):
     """Admin interface for ProcedureMaster model."""
     
     list_display = [
@@ -269,8 +267,7 @@ class ProcedureMasterAdmin(admin.ModelAdmin):
     is_active_badge.short_description = 'Status'
 
 
-@admin.register(ProcedurePackage)
-class ProcedurePackageAdmin(admin.ModelAdmin):
+class ProcedurePackageAdmin(TenantModelAdmin):
     """Admin interface for ProcedurePackage model."""
     
     list_display = [
@@ -362,8 +359,7 @@ class ProcedureBillItemInline(admin.TabularInline):
     autocomplete_fields = ['procedure']
 
 
-@admin.register(ProcedureBill)
-class ProcedureBillAdmin(admin.ModelAdmin):
+class ProcedureBillAdmin(TenantModelAdmin):
     """Admin interface for ProcedureBill model."""
     
     list_display = [
@@ -461,8 +457,7 @@ class ProcedureBillAdmin(admin.ModelAdmin):
     payment_status_badge.short_description = 'Payment Status'
 
 
-@admin.register(ClinicalNote)
-class ClinicalNoteAdmin(admin.ModelAdmin):
+class ClinicalNoteAdmin(TenantModelAdmin):
     """Admin interface for ClinicalNote model."""
     
     list_display = [
@@ -539,8 +534,7 @@ class ClinicalNoteAdmin(admin.ModelAdmin):
     diagnosis_short.short_description = 'Diagnosis'
 
 
-@admin.register(VisitFinding)
-class VisitFindingAdmin(admin.ModelAdmin):
+class VisitFindingAdmin(TenantModelAdmin):
     """Admin interface for VisitFinding model."""
     
     list_display = [
@@ -637,8 +631,7 @@ class VisitFindingAdmin(admin.ModelAdmin):
     bmi_category_display.short_description = 'BMI Category'
 
 
-@admin.register(VisitAttachment)
-class VisitAttachmentAdmin(admin.ModelAdmin):
+class VisitAttachmentAdmin(TenantModelAdmin):
     """Admin interface for VisitAttachment model."""
     
     list_display = [
@@ -687,8 +680,7 @@ class VisitAttachmentAdmin(admin.ModelAdmin):
     file_size_display.short_description = 'File Size'
 
     
-@admin.register(ClinicalNoteTemplateGroup)
-class ClinicalNoteTemplateGroupAdmin(admin.ModelAdmin):
+class ClinicalNoteTemplateGroupAdmin(TenantModelAdmin):
     """Admin interface for Template Groups."""
     
     list_display = [
@@ -782,8 +774,7 @@ class ClinicalNoteTemplateFieldInline(admin.StackedInline):
 # TEMPLATE FIELD ADMIN (Separate)
 # ============================================================================
 
-@admin.register(ClinicalNoteTemplateField)
-class ClinicalNoteTemplateFieldAdmin(admin.ModelAdmin):
+class ClinicalNoteTemplateFieldAdmin(TenantModelAdmin):
     """Standalone admin for managing template fields."""
     
     list_display = [
@@ -898,8 +889,7 @@ class ClinicalNoteTemplateFieldAdmin(admin.ModelAdmin):
 # TEMPLATE ADMIN
 # ============================================================================
 
-@admin.register(ClinicalNoteTemplate)
-class ClinicalNoteTemplateAdmin(admin.ModelAdmin):
+class ClinicalNoteTemplateAdmin(TenantModelAdmin):
     """Admin interface for Clinical Note Templates."""
     
     list_display = [
@@ -1006,8 +996,7 @@ class ClinicalNoteTemplateFieldResponseInline(admin.TabularInline):
 # TEMPLATE RESPONSE ADMIN
 # ============================================================================
 
-@admin.register(ClinicalNoteTemplateResponse)
-class ClinicalNoteTemplateResponseAdmin(admin.ModelAdmin):
+class ClinicalNoteTemplateResponseAdmin(TenantModelAdmin):
     """Admin interface for Template Responses."""
     
     list_display = [
@@ -1074,3 +1063,17 @@ class ClinicalNoteTemplateResponseAdmin(admin.ModelAdmin):
             obj.get_status_display()
         )
     status_badge.short_description = 'Status'
+
+# Register with tenant_admin_site
+tenant_admin_site.register(Visit, VisitAdmin)
+tenant_admin_site.register(OPDBill, OPDBillAdmin)
+tenant_admin_site.register(ProcedureMaster, ProcedureMasterAdmin)
+tenant_admin_site.register(ProcedurePackage, ProcedurePackageAdmin)
+tenant_admin_site.register(ProcedureBill, ProcedureBillAdmin)
+tenant_admin_site.register(ClinicalNote, ClinicalNoteAdmin)
+tenant_admin_site.register(VisitFinding, VisitFindingAdmin)
+tenant_admin_site.register(VisitAttachment, VisitAttachmentAdmin)
+tenant_admin_site.register(ClinicalNoteTemplateGroup, ClinicalNoteTemplateGroupAdmin)
+tenant_admin_site.register(ClinicalNoteTemplateField, ClinicalNoteTemplateFieldAdmin)
+tenant_admin_site.register(ClinicalNoteTemplate, ClinicalNoteTemplateAdmin)
+tenant_admin_site.register(ClinicalNoteTemplateResponse, ClinicalNoteTemplateResponseAdmin)

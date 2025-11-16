@@ -1,10 +1,10 @@
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from django.utils.html import format_html
 from .models import PaymentCategory, Transaction, AccountingPeriod
 
 
-@admin.register(PaymentCategory)
-class PaymentCategoryAdmin(admin.ModelAdmin):
+class PaymentCategoryAdmin(TenantModelAdmin):
     """Admin configuration for Payment Categories"""
     list_display = [
         'name', 
@@ -16,8 +16,7 @@ class PaymentCategoryAdmin(admin.ModelAdmin):
     search_fields = ['name', 'description']
 
 
-@admin.register(Transaction)
-class TransactionAdmin(admin.ModelAdmin):
+class TransactionAdmin(TenantModelAdmin):
     """Comprehensive Transaction Management in Admin"""
     list_display = [
         'transaction_number', 
@@ -110,8 +109,7 @@ class TransactionAdmin(admin.ModelAdmin):
         )
 
 
-@admin.register(AccountingPeriod)
-class AccountingPeriodAdmin(admin.ModelAdmin):
+class AccountingPeriodAdmin(TenantModelAdmin):
     """Admin configuration for Accounting Periods"""
     list_display = [
         'name', 
@@ -151,3 +149,8 @@ class AccountingPeriodAdmin(admin.ModelAdmin):
         
         self.message_user(request, f"{queryset.count()} accounting periods updated.")
     calculate_financial_summary.short_description = "Recalculate Financial Summary"
+
+# Register with tenant_admin_site
+tenant_admin_site.register(PaymentCategory, PaymentCategoryAdmin)
+tenant_admin_site.register(Transaction, TransactionAdmin)
+tenant_admin_site.register(AccountingPeriod, AccountingPeriodAdmin)

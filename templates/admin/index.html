@@ -1,0 +1,255 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .tenant-info {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+
+    .tenant-info h2 {
+        margin: 0 0 15px 0;
+        font-size: 22px;
+        font-weight: 600;
+    }
+
+    .tenant-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+
+    .tenant-detail {
+        background: rgba(255, 255, 255, 0.15);
+        padding: 12px 15px;
+        border-radius: 6px;
+        backdrop-filter: blur(10px);
+    }
+
+    .tenant-detail-label {
+        font-size: 12px;
+        opacity: 0.9;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .tenant-detail-value {
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .module-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .module-badge {
+        background: rgba(255, 255, 255, 0.2);
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 500;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .welcome-message {
+        background: #f8f9fa;
+        border-left: 4px solid #667eea;
+        padding: 15px 20px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+
+    .app-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+    }
+
+    .module h2 {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
+        margin: 0;
+        border-radius: 8px 8px 0 0;
+        font-size: 18px;
+    }
+
+    .module {
+        border: 1px solid #e1e4e8;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        transition: all 0.3s ease;
+    }
+
+    .module:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+
+    .module table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .module table th,
+    .module table td {
+        padding: 12px 20px;
+        text-align: left;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .module table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #666;
+    }
+
+    .module table td a {
+        color: #667eea;
+        text-decoration: none;
+        transition: color 0.2s ease;
+    }
+
+    .module table td a:hover {
+        color: #764ba2;
+        text-decoration: underline;
+    }
+
+    .addlink,
+    .changelink {
+        padding: 4px 10px;
+        background: #667eea;
+        color: white !important;
+        border-radius: 4px;
+        font-size: 12px;
+        margin-left: 8px;
+        text-decoration: none !important;
+        display: inline-block;
+        transition: background 0.2s ease;
+    }
+
+    .addlink:hover,
+    .changelink:hover {
+        background: #764ba2;
+        color: white !important;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    {% if tenant_name %}
+    <div class="tenant-info">
+        <h2>🏥 DigiHMS - Hospital Management System</h2>
+        <div class="tenant-details">
+            <div class="tenant-detail">
+                <div class="tenant-detail-label">Hospital/Tenant</div>
+                <div class="tenant-detail-value">{{ tenant_name }}</div>
+            </div>
+            <div class="tenant-detail">
+                <div class="tenant-detail-label">User</div>
+                <div class="tenant-detail-value">{{ user_email }}</div>
+            </div>
+            <div class="tenant-detail">
+                <div class="tenant-detail-label">Tenant ID</div>
+                <div class="tenant-detail-value" style="font-size: 12px; font-family: monospace;">
+                    {{ tenant_id|truncatechars:16 }}
+                </div>
+            </div>
+        </div>
+        {% if enabled_modules %}
+        <div class="tenant-detail" style="margin-top: 15px;">
+            <div class="tenant-detail-label">Enabled Modules</div>
+            <div class="module-badges">
+                {% for module in enabled_modules %}
+                <span class="module-badge">{{ module|upper }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="welcome-message">
+        <h3 style="margin: 0 0 8px 0; color: #333;">
+            Welcome to DigiHMS Administration
+        </h3>
+        <p style="margin: 0; color: #666;">
+            Manage your hospital's data, patients, appointments, doctors, and more from this admin interface.
+        </p>
+    </div>
+
+    {% if app_list %}
+    <div class="app-list">
+        {% for app in app_list %}
+        <div class="module">
+            <h2>
+                {% if app.app_label == 'patients' %}
+                    👥 {{ app.name }}
+                {% elif app.app_label == 'doctors' %}
+                    👨‍⚕️ {{ app.name }}
+                {% elif app.app_label == 'appointments' %}
+                    📅 {{ app.name }}
+                {% elif app.app_label == 'opd' %}
+                    🏥 {{ app.name }}
+                {% elif app.app_label == 'pharmacy' %}
+                    💊 {{ app.name }}
+                {% elif app.app_label == 'payments' %}
+                    💳 {{ app.name }}
+                {% elif app.app_label == 'orders' %}
+                    📋 {{ app.name }}
+                {% elif app.app_label == 'services' %}
+                    🔧 {{ app.name }}
+                {% else %}
+                    {{ app.name }}
+                {% endif %}
+            </h2>
+            <table summary="{% blocktrans with name=app.name %}Models available in the {{ name }} application.{% endblocktrans %}">
+                {% for model in app.models %}
+                <tr class="model-{{ model.object_name|lower }}">
+                    <td>
+                        <strong>{{ model.name }}</strong>
+                        {% if model.add_url %}
+                        <a href="{{ model.add_url }}" class="addlink">
+                            {% trans 'Add' %}
+                        </a>
+                        {% endif %}
+                        {% if model.admin_url %}
+                        <a href="{{ model.admin_url }}" class="changelink">
+                            {% trans 'Change' %}
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>{% trans "You don't have permission to view or edit anything." %}</p>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,9 +1,9 @@
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from .models import Specialty, DoctorProfile, DoctorAvailability
 
 
-@admin.register(Specialty)
-class SpecialtyAdmin(admin.ModelAdmin):
+class SpecialtyAdmin(TenantModelAdmin):
     """Admin for Medical Specialties"""
     list_display = ['name', 'code', 'department', 'is_active', 'doctors_count', 'created_at']
     list_filter = ['is_active', 'department', 'created_at']
@@ -37,8 +37,7 @@ class DoctorAvailabilityInline(admin.TabularInline):
     fields = ['day_of_week', 'start_time', 'end_time', 'is_available', 'max_appointments']
 
 
-@admin.register(DoctorProfile)
-class DoctorProfileAdmin(admin.ModelAdmin):
+class DoctorProfileAdmin(TenantModelAdmin):
     """Admin for Doctor Profiles"""
     list_display = [
         'get_doctor_name', 'medical_license_number', 'status',
@@ -115,8 +114,7 @@ class DoctorProfileAdmin(admin.ModelAdmin):
     is_license_valid.short_description = 'License Valid'
 
 
-@admin.register(DoctorAvailability)
-class DoctorAvailabilityAdmin(admin.ModelAdmin):
+class DoctorAvailabilityAdmin(TenantModelAdmin):
     """Admin for Doctor Availability"""
     list_display = [
         'doctor', 'day_of_week', 'start_time', 'end_time',
@@ -130,7 +128,7 @@ class DoctorAvailabilityAdmin(admin.ModelAdmin):
     readonly_fields = ['created_at', 'updated_at']
     ordering = ['doctor', 'day_of_week', 'start_time']
     date_hierarchy = 'created_at'
-    
+
     fieldsets = (
         ('Doctor', {
             'fields': ('doctor',)
@@ -146,3 +144,9 @@ class DoctorAvailabilityAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+# Register with tenant_admin_site
+tenant_admin_site.register(Specialty, SpecialtyAdmin)
+tenant_admin_site.register(DoctorProfile, DoctorProfileAdmin)
+tenant_admin_site.register(DoctorAvailability, DoctorAvailabilityAdmin)
