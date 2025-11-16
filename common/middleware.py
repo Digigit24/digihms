@@ -62,11 +62,13 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         token = auth_header.split(' ')[1]
         
         try:
-            # Decode JWT token
+            # Decode JWT token with leeway for clock skew
             payload = jwt.decode(
                 token,
                 settings.JWT_SECRET_KEY,
-                algorithms=[settings.JWT_ALGORITHM]
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_exp": True},
+                leeway=60  # Allow 60 seconds clock skew
             )
             
             # Validate required fields

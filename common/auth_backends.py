@@ -120,7 +120,14 @@ class SuperAdminAuthBackend(BaseBackend):
                     secret_key = getattr(settings, 'JWT_SECRET_KEY')
                     algorithm = getattr(settings, 'JWT_ALGORITHM', 'HS256')
 
-                    payload = jwt.decode(access_token, secret_key, algorithms=[algorithm])
+                    # Add leeway to handle clock skew between servers
+                    payload = jwt.decode(
+                        access_token,
+                        secret_key,
+                        algorithms=[algorithm],
+                        options={"verify_exp": True},
+                        leeway=60  # Allow 60 seconds clock skew
+                    )
 
                     # Check if HMS module is enabled
                     enabled_modules = payload.get('enabled_modules', [])
@@ -203,7 +210,14 @@ class JWTAuthBackend(BaseBackend):
             secret_key = getattr(settings, 'JWT_SECRET_KEY')
             algorithm = getattr(settings, 'JWT_ALGORITHM', 'HS256')
 
-            payload = jwt.decode(jwt_token, secret_key, algorithms=[algorithm])
+            # Add leeway to handle clock skew between servers
+            payload = jwt.decode(
+                jwt_token,
+                secret_key,
+                algorithms=[algorithm],
+                options={"verify_exp": True},
+                leeway=60  # Allow 60 seconds clock skew
+            )
 
             # Check if HMS module is enabled
             enabled_modules = payload.get('enabled_modules', [])
