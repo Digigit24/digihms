@@ -9,8 +9,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for tenant information
+# Thread-local storage for tenant information and request
 _thread_local = threading.local()
+
+
+def get_current_request():
+    """Get the current request from thread-local storage"""
+    return getattr(_thread_local, 'request', None)
+
+
+def set_current_request(request):
+    """Set the current request in thread-local storage"""
+    _thread_local.request = request
 
 
 class JWTAuthenticationMiddleware(MiddlewareMixin):
@@ -22,17 +32,21 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
     
     def process_request(self, request):
         """Process incoming request and validate JWT."""
-        
+
+        # Store request in thread-local storage for authentication backends
+        set_current_request(request)
+
         # Skip JWT validation for certain paths
         skip_paths = [
             '/admin/',
+            '/auth/',
             '/static/',
             '/media/',
             '/health/',
             '/docs/',
             '/redoc/',
         ]
-        
+
         if any(request.path.startswith(path) for path in skip_paths):
             return None
         

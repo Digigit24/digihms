@@ -16,6 +16,9 @@ CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 JWT_SECRET_KEY = config('JWT_SECRET_KEY')
 JWT_ALGORITHM = config('JWT_ALGORITHM', default='HS256')
 
+# --- SuperAdmin URL ---
+SUPERADMIN_URL = config('SUPERADMIN_URL', default='https://admin.celiyo.com')
+
 
 
 
@@ -157,6 +160,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
+
+# --- Authentication Backends (for Django Admin with SuperAdmin JWT) ---
+AUTHENTICATION_BACKENDS = [
+    'common.auth_backends.SuperAdminAuthBackend',
+    'common.auth_backends.JWTAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',  # Keep for local accounts app
+]
+
+# --- Session Settings (for Django Admin) ---
+SESSION_COOKIE_AGE = 3600 * 8  # 8 hours
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 CORS_ALLOW_CREDENTIALS = True
 
