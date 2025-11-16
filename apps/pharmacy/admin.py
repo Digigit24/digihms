@@ -1,4 +1,5 @@
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from django.utils.html import format_html
 from .models import (
     ProductCategory,
@@ -10,8 +11,7 @@ from .models import (
 )
 
 
-@admin.register(ProductCategory)
-class ProductCategoryAdmin(admin.ModelAdmin):
+class ProductCategoryAdmin(TenantModelAdmin):
     """Admin for Product Categories"""
     list_display = ['name', 'type', 'is_active', 'created_at']
     list_filter = ['type', 'is_active', 'created_at']
@@ -33,8 +33,7 @@ class ProductCategoryAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(PharmacyProduct)
-class PharmacyProductAdmin(admin.ModelAdmin):
+class PharmacyProductAdmin(TenantModelAdmin):
     """Admin for Pharmacy Products"""
     list_display = [
         'product_name',
@@ -97,8 +96,7 @@ class CartItemInline(admin.TabularInline):
     total_price.short_description = 'Total Price'
 
 
-@admin.register(Cart)
-class CartAdmin(admin.ModelAdmin):
+class CartAdmin(TenantModelAdmin):
     """Admin for Shopping Carts"""
     list_display = ['user', 'total_items', 'total_amount', 'created_at', 'updated_at']
     search_fields = ['user__username', 'user__email']
@@ -131,8 +129,7 @@ class PharmacyOrderItemInline(admin.TabularInline):
     total_price.short_description = 'Total Price'
 
 
-@admin.register(PharmacyOrder)
-class PharmacyOrderAdmin(admin.ModelAdmin):
+class PharmacyOrderAdmin(TenantModelAdmin):
     """Admin for Pharmacy Orders"""
     list_display = [
         'id',
@@ -167,3 +164,9 @@ class PharmacyOrderAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         """Disable manual order creation in admin"""
         return False
+
+# Register with tenant_admin_site
+tenant_admin_site.register(ProductCategory, ProductCategoryAdmin)
+tenant_admin_site.register(PharmacyProduct, PharmacyProductAdmin)
+tenant_admin_site.register(Cart, CartAdmin)
+tenant_admin_site.register(PharmacyOrder, PharmacyOrderAdmin)

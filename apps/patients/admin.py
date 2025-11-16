@@ -1,4 +1,5 @@
 from django.contrib import admin
+from common.admin_site import tenant_admin_site, TenantModelAdmin
 from .models import PatientProfile, PatientVitals, PatientAllergy
 
 
@@ -19,8 +20,7 @@ class PatientAllergyInline(admin.TabularInline):
     fields = ['allergy_type', 'allergen', 'severity', 'is_active']
 
 
-@admin.register(PatientProfile)
-class PatientProfileAdmin(admin.ModelAdmin):
+class PatientProfileAdmin(TenantModelAdmin):
     list_display = [
         'patient_id', 'full_name', 'age', 'gender', 'mobile_primary',
         'blood_group', 'city', 'status', 'total_visits',
@@ -41,7 +41,7 @@ class PatientProfileAdmin(admin.ModelAdmin):
     inlines = [PatientVitalsInline, PatientAllergyInline]
     ordering = ['-registration_date']
     date_hierarchy = 'registration_date'
-    
+
     fieldsets = (
         ('Patient Identification', {
             'fields': ('patient_id', 'user', 'status')
@@ -94,15 +94,14 @@ class PatientProfileAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    
+
     def full_name(self, obj):
         return obj.full_name
     full_name.short_description = 'Full Name'
     full_name.admin_order_field = 'first_name'
 
 
-@admin.register(PatientVitals)
-class PatientVitalsAdmin(admin.ModelAdmin):
+class PatientVitalsAdmin(TenantModelAdmin):
     list_display = [
         'patient', 'temperature', 'get_blood_pressure',
         'heart_rate', 'oxygen_saturation', 'recorded_by',
@@ -116,7 +115,7 @@ class PatientVitalsAdmin(admin.ModelAdmin):
     readonly_fields = ['recorded_at']
     ordering = ['-recorded_at']
     date_hierarchy = 'recorded_at'
-    
+
     fieldsets = (
         ('Patient Information', {
             'fields': ('patient', 'recorded_by')
@@ -133,14 +132,13 @@ class PatientVitalsAdmin(admin.ModelAdmin):
             'fields': ('notes', 'recorded_at')
         }),
     )
-    
+
     def get_blood_pressure(self, obj):
         return obj.blood_pressure or '-'
     get_blood_pressure.short_description = 'Blood Pressure'
 
 
-@admin.register(PatientAllergy)
-class PatientAllergyAdmin(admin.ModelAdmin):
+class PatientAllergyAdmin(TenantModelAdmin):
     list_display = [
         'patient', 'allergy_type', 'allergen', 'severity',
         'is_active', 'created_at'
@@ -154,7 +152,7 @@ class PatientAllergyAdmin(admin.ModelAdmin):
     ]
     readonly_fields = ['created_at', 'updated_at']
     ordering = ['-severity', 'allergen']
-    
+
     fieldsets = (
         ('Patient Information', {
             'fields': ('patient', 'recorded_by')
@@ -170,3 +168,9 @@ class PatientAllergyAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+# Register with tenant_admin_site instead of default admin.site
+tenant_admin_site.register(PatientProfile, PatientProfileAdmin)
+tenant_admin_site.register(PatientVitals, PatientVitalsAdmin)
+tenant_admin_site.register(PatientAllergy, PatientAllergyAdmin)
