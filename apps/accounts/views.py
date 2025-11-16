@@ -1,393 +1,173 @@
-from rest_framework import generics, status, viewsets
+"""
+DigiHMS Accounts Views
+
+ViewSets for managing doctor profiles and specialties.
+Authentication is handled by SuperAdmin - no local auth views.
+"""
+
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated, DjangoModelPermissions
-from rest_framework.authtoken.models import Token
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
 from django.db.models import Q
 
-from drf_spectacular.utils import (
-    extend_schema, 
-    extend_schema_view,
-    OpenApiParameter,
-    OpenApiExample,
-    OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+
+from common.permissions import PermissionMixin, HMSPermissions
+from common.mixins import TenantViewSetMixin
+from apps.accounts.models import DoctorProfile, Specialty, DoctorAvailability
+from apps.accounts.serializers import (
+    DoctorProfileListSerializer,
+    DoctorProfileDetailSerializer,
+    DoctorProfileCreateUpdateSerializer,
+    SpecialtySerializer,
+    DoctorAvailabilitySerializer
 )
-
-from .serializers import (
-    UserCreateWithProfileSerializer,
-    UserSerializer,
-    LoginSerializer,
-    ChangePasswordSerializer
-)
-
-User = get_user_model()
-
-
-@extend_schema(tags=['Authentication'])
-class RegisterView(generics.CreateAPIView):
-    """
-    User Registration with Profile
-    
-    Register a new user account with optional profile attachment.
-    
-    Supported scenarios:
-    1. Staff member (no profile required): Administrator, Receptionist, Nurse, etc.
-    2. Doctor (doctor_profile required)
-    3. Patient (patient_profile required)
-    """
-    queryset = User.objects.all()
-    serializer_class = UserCreateWithProfileSerializer
-    permission_classes = [AllowAny]
-    
-    @extend_schema(
-        summary="Register new user with profile",
-        description="Create a new user account with role assignment and optional profile",
-        request=UserCreateWithProfileSerializer,
-        responses={
-            201: OpenApiResponse(
-                response=UserSerializer,
-                description="User created successfully"
-            ),
-            400: OpenApiResponse(description="Bad request - validation errors")
-        },
-        examples=[
-            OpenApiExample(
-                'Doctor Registration Example',
-                value={
-                    'email': 'doctor@hospital.com',
-                    'username': 'doctor1',
-                    'password': 'SecurePass123',
-                    'password_confirm': 'SecurePass123',
-                    'first_name': 'John',
-                    'last_name': 'Doe',
-                    'phone': '+919876543210',
-                    'role': 'Doctor',
-                    'doctor_profile': {
-                        'medical_license_number': 'MED123456',
-                        'license_issuing_authority': 'Medical Council of India',
-                        'license_issue_date': '2020-01-01',
-                        'license_expiry_date': '2030-01-01',
-                        'qualifications': 'MBBS, MD',
-                        'specialty_ids': [1, 2],
-                        'years_of_experience': 5,
-                        'consultation_fee': 500.00,
-                        'consultation_duration': 30
-                    }
-                },
-                request_only=True,
-            ),
-            OpenApiExample(
-                'Patient Registration Example',
-                value={
-                    'email': 'patient@example.com',
-                    'username': 'patient1',
-                    'password': 'SecurePass123',
-                    'password_confirm': 'SecurePass123',
-                    'first_name': 'Jane',
-                    'last_name': 'Smith',
-                    'phone': '+919876543210',
-                    'role': 'Patient',
-                    'patient_profile': {
-                        'first_name': 'Jane',
-                        'last_name': 'Smith',
-                        'date_of_birth': '1990-05-15',
-                        'gender': 'female',
-                        'mobile_primary': '+919876543210',
-                        'address_line1': '123 Main Street',
-                        'city': 'Mumbai',
-                        'state': 'Maharashtra',
-                        'pincode': '400001',
-                        'blood_group': 'O+',
-                        'emergency_contact_name': 'John Smith',
-                        'emergency_contact_phone': '+919876543211',
-                        'emergency_contact_relation': 'Spouse'
-                    }
-                },
-                request_only=True,
-            ),
-            OpenApiExample(
-                'Staff Registration Example (No Profile)',
-                value={
-                    'email': 'receptionist@hospital.com',
-                    'username': 'reception1',
-                    'password': 'SecurePass123',
-                    'password_confirm': 'SecurePass123',
-                    'first_name': 'Mary',
-                    'last_name': 'Johnson',
-                    'phone': '+919876543210',
-                    'role': 'Receptionist'
-                },
-                request_only=True,
-            ),
-        ]
-    )
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        
-        user = serializer.save()
-        
-        # Generate token
-        token, created = Token.objects.get_or_create(user=user)
-        
-        return Response({
-            'success': True,
-            'data': {
-                'token': token.key,
-                'user': UserSerializer(user).data
-            }
-        }, status=status.HTTP_201_CREATED)
-
-
-@extend_schema(tags=['Authentication'])
-class LoginView(generics.GenericAPIView):
-    """
-    User Login
-    
-    Authenticate user and receive an authentication token.
-    Use this token in the Authorization header for subsequent requests.
-    """
-    serializer_class = LoginSerializer
-    permission_classes = [AllowAny]
-    
-    @extend_schema(
-        summary="User login",
-        description="Authenticate and receive token",
-        request=LoginSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=UserSerializer,
-                description="Login successful"
-            ),
-            400: OpenApiResponse(description="Invalid credentials")
-        },
-        examples=[
-            OpenApiExample(
-                'Login Example',
-                value={
-                    'email': 'doctor@hospital.com',
-                    'password': 'SecurePass123'
-                },
-                request_only=True,
-            ),
-        ]
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data['user']
-        
-        # Get or create token
-        token, created = Token.objects.get_or_create(user=user)
-        
-        # Login user (session)
-        login(request, user)
-        
-        return Response({
-            'success': True,
-            'data': {
-                'token': token.key,
-                'user': UserSerializer(user).data
-            }
-        })
-
-
-@extend_schema(tags=['Authentication'])
-class LogoutView(generics.GenericAPIView):
-    """
-    User Logout
-    
-    Delete the authentication token and logout the user.
-    """
-    permission_classes = [IsAuthenticated]
-    
-    @extend_schema(
-        summary="User logout",
-        description="Delete authentication token and logout",
-        request=None,
-        responses={
-            200: OpenApiResponse(description="Logged out successfully")
-        }
-    )
-    def post(self, request):
-        try:
-            # Delete token
-            request.user.auth_token.delete()
-        except:
-            pass
-        
-        logout(request)
-        
-        return Response({
-            'success': True,
-            'message': 'Logged out successfully'
-        })
-
-
-@extend_schema(tags=['Authentication'])
-class MeView(generics.RetrieveUpdateAPIView):
-    """
-    Current User Profile
-    
-    Get or update the authenticated user's profile.
-    """
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_object(self):
-        return self.request.user
-    
-    @extend_schema(
-        summary="Get current user profile",
-        description="Retrieve authenticated user's profile information",
-        responses={200: UserSerializer}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Update current user profile",
-        description="Update authenticated user's profile information",
-        request=UserSerializer,
-        responses={200: UserSerializer}
-    )
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-
-
-@extend_schema(tags=['Authentication'])
-class ChangePasswordView(generics.GenericAPIView):
-    """
-    Change Password
-    
-    Change the authenticated user's password.
-    A new token will be generated after password change.
-    """
-    serializer_class = ChangePasswordSerializer
-    permission_classes = [IsAuthenticated]
-    
-    @extend_schema(
-        summary="Change user password",
-        description="Change password and receive new token",
-        request=ChangePasswordSerializer,
-        responses={
-            200: OpenApiResponse(description="Password changed successfully"),
-            400: OpenApiResponse(description="Invalid old password")
-        },
-        examples=[
-            OpenApiExample(
-                'Change Password Example',
-                value={
-                    'old_password': 'OldPass123',
-                    'new_password': 'NewSecurePass123',
-                    'new_password_confirm': 'NewSecurePass123'
-                },
-                request_only=True,
-            ),
-        ]
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        user = request.user
-        
-        # Check old password
-        if not user.check_password(serializer.validated_data['old_password']):
-            return Response({
-                'success': False,
-                'error': 'Invalid old password'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Set new password
-        user.set_password(serializer.validated_data['new_password'])
-        user.save()
-        
-        # Regenerate token
-        Token.objects.filter(user=user).delete()
-        token = Token.objects.create(user=user)
-        
-        return Response({
-            'success': True,
-            'message': 'Password changed successfully',
-            'data': {'token': token.key}
-        })
+from apps.accounts.services import sync_doctor_from_jwt
 
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List users",
-        description="Get list of users (requires view_user permission)",
+        summary="List specialties",
+        description="Get list of medical specialties",
+        tags=['Specialties']
+    ),
+    retrieve=extend_schema(
+        summary="Get specialty details",
+        description="Retrieve detailed information about a specific specialty",
+        tags=['Specialties']
+    ),
+    create=extend_schema(
+        summary="Create specialty",
+        description="Create a new medical specialty",
+        tags=['Specialties']
+    ),
+    update=extend_schema(
+        summary="Update specialty",
+        description="Update a medical specialty",
+        tags=['Specialties']
+    ),
+    destroy=extend_schema(
+        summary="Delete specialty",
+        description="Delete a medical specialty",
+        tags=['Specialties']
+    ),
+)
+class SpecialtyViewSet(TenantViewSetMixin, PermissionMixin, viewsets.ModelViewSet):
+    """
+    ViewSet for managing medical specialties.
+
+    Provides CRUD operations for specialties used by doctors.
+    """
+    queryset = Specialty.objects.all()
+    serializer_class = SpecialtySerializer
+
+    permission_mapping = {
+        'list': HMSPermissions.DOCTORS_VIEW,
+        'retrieve': HMSPermissions.DOCTORS_VIEW,
+        'create': HMSPermissions.DOCTORS_CREATE,
+        'update': HMSPermissions.DOCTORS_EDIT,
+        'partial_update': HMSPermissions.DOCTORS_EDIT,
+        'destroy': HMSPermissions.DOCTORS_DELETE,
+    }
+
+    owner_field = 'tenant_id'
+
+    def get_queryset(self):
+        """Filter specialties by tenant and active status."""
+        queryset = super().get_queryset()
+
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+
+        return queryset.order_by('name')
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List doctor profiles",
+        description="Get list of doctor profiles with optional filters",
         parameters=[
+            OpenApiParameter(
+                name='status',
+                type=str,
+                description='Filter by status (active, on_leave, inactive)'
+            ),
+            OpenApiParameter(
+                name='specialty',
+                type=int,
+                description='Filter by specialty ID'
+            ),
             OpenApiParameter(
                 name='search',
                 type=str,
-                description='Search by name, email, or username',
-                required=False
-            ),
-            OpenApiParameter(
-                name='role',
-                type=str,
-                description='Filter by role/group name',
-                required=False
+                description='Search by name, email, or license number'
             ),
         ],
-        tags=['Users']
+        tags=['Doctors']
     ),
     retrieve=extend_schema(
-        summary="Get user details",
-        description="Retrieve detailed information about a specific user (requires view_user permission)",
-        tags=['Users']
+        summary="Get doctor profile",
+        description="Retrieve detailed doctor profile information",
+        tags=['Doctors']
+    ),
+    create=extend_schema(
+        summary="Create doctor profile",
+        description="Create a new doctor profile for a SuperAdmin user",
+        tags=['Doctors']
     ),
     update=extend_schema(
-        summary="Update user",
-        description="Update user information (requires change_user permission or self)",
-        tags=['Users']
+        summary="Update doctor profile",
+        description="Update doctor profile information",
+        tags=['Doctors']
     ),
     partial_update=extend_schema(
-        summary="Partial update user",
-        description="Partially update user information (requires change_user permission or self)",
-        tags=['Users']
+        summary="Partial update doctor profile",
+        description="Partially update doctor profile information",
+        tags=['Doctors']
     ),
     destroy=extend_schema(
-        summary="Delete user",
-        description="Delete a user (requires delete_user permission)",
-        tags=['Users']
+        summary="Delete doctor profile",
+        description="Delete a doctor profile",
+        tags=['Doctors']
     ),
 )
-class UserViewSet(viewsets.ModelViewSet):
+class DoctorProfileViewSet(TenantViewSetMixin, PermissionMixin, viewsets.ModelViewSet):
     """
-    User Management
-    
-    CRUD operations for user management using Django model permissions.
-    - Users with view_user permission can view users
-    - Users with change_user permission can update users (or update themselves)
-    - Users with delete_user permission can delete users
+    ViewSet for managing doctor profiles.
+
+    Provides CRUD operations for doctor profiles linked to SuperAdmin users.
     """
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, DjangoModelPermissions]
-    
+    queryset = DoctorProfile.objects.all().select_related().prefetch_related('specialties')
+
+    permission_mapping = {
+        'list': HMSPermissions.DOCTORS_VIEW,
+        'retrieve': HMSPermissions.DOCTORS_VIEW,
+        'create': HMSPermissions.DOCTORS_CREATE,
+        'update': HMSPermissions.DOCTORS_EDIT,
+        'partial_update': HMSPermissions.DOCTORS_EDIT,
+        'destroy': HMSPermissions.DOCTORS_DELETE,
+        'me': None,  # No permission check - own profile
+        'sync_from_jwt': None,  # No permission check - own profile sync
+    }
+
+    owner_field = 'tenant_id'
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action."""
+        if self.action == 'list':
+            return DoctorProfileListSerializer
+        elif self.action in ['create', 'update', 'partial_update']:
+            return DoctorProfileCreateUpdateSerializer
+        return DoctorProfileDetailSerializer
+
     def get_queryset(self):
-        """Filter queryset based on permissions"""
-        queryset = User.objects.all()
-        
-        # Users without view_user permission can only see themselves
-        if not self.request.user.has_perm('accounts.view_user'):
-            queryset = queryset.filter(id=self.request.user.id)
-        
+        """
+        Get queryset with permission-based filtering and search.
+        """
+        queryset = super().get_queryset()
+
         # Search
         search = self.request.query_params.get('search')
         if search:
@@ -395,134 +175,168 @@ class UserViewSet(viewsets.ModelViewSet):
                 Q(first_name__icontains=search) |
                 Q(last_name__icontains=search) |
                 Q(email__icontains=search) |
-                Q(username__icontains=search)
+                Q(medical_license_number__icontains=search)
             )
-        
-        # Filter by role (group)
-        role = self.request.query_params.get('role')
-        if role:
-            queryset = queryset.filter(groups__name=role)
-        
+
+        # Filter by status
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        # Filter by specialty
+        specialty_id = self.request.query_params.get('specialty')
+        if specialty_id:
+            queryset = queryset.filter(specialties__id=specialty_id)
+
         return queryset.distinct().order_by('-created_at')
-    
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        
-        # Allow self-update even without change_user permission
-        has_perm = request.user.has_perm('accounts.change_user')
-        is_self = instance.id == request.user.id
-        
-        if not has_perm and not is_self:
+
+    def perform_create(self, serializer):
+        """Create doctor profile with auto-set tenant_id."""
+        serializer.save(tenant_id=self.request.tenant_id)
+
+    @extend_schema(
+        summary="Get current user's doctor profile",
+        description="Retrieve doctor profile for the currently authenticated user",
+        responses={
+            200: DoctorProfileDetailSerializer,
+            404: {'description': 'Doctor profile not found for current user'}
+        },
+        tags=['Doctors']
+    )
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """
+        Get doctor profile for the current user.
+
+        Returns the doctor profile associated with the authenticated user's user_id.
+        """
+        try:
+            doctor = DoctorProfile.objects.select_related().prefetch_related(
+                'specialties', 'availability'
+            ).get(
+                user_id=request.user_id,
+                tenant_id=request.tenant_id
+            )
+
+            serializer = DoctorProfileDetailSerializer(doctor)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except DoctorProfile.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response({
-            'success': True,
-            'message': 'User deleted successfully'
-        }, status=status.HTTP_204_NO_CONTENT)
-    
+                'error': 'Doctor profile not found for current user'
+            }, status=status.HTTP_404_NOT_FOUND)
+
     @extend_schema(
-        summary="Get available roles",
-        description="List all available user roles (groups)",
-        responses={200: OpenApiResponse(description="List of roles")},
-        tags=['Users']
+        summary="Sync doctor profile from JWT",
+        description="Update doctor profile cached user data from JWT token",
+        responses={
+            200: DoctorProfileDetailSerializer,
+            404: {'description': 'Doctor profile not found'}
+        },
+        tags=['Doctors']
     )
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
-    def roles(self, request):
-        """Get available roles (groups)"""
-        groups = Group.objects.all()
+    @action(detail=False, methods=['post'])
+    def sync_from_jwt(self, request):
+        """
+        Sync doctor profile data from JWT payload.
+
+        Updates cached user information (email, first_name, last_name) from JWT.
+        """
+        # Build user payload from request (set by JWT middleware)
+        user_payload = {
+            'email': request.email,
+            'first_name': getattr(request, 'first_name', ''),
+            'last_name': getattr(request, 'last_name', ''),
+        }
+
+        doctor = sync_doctor_from_jwt(request.user_id, user_payload)
+
+        if doctor:
+            serializer = DoctorProfileDetailSerializer(doctor)
+            return Response({
+                'success': True,
+                'message': 'Doctor profile synced successfully',
+                'data': serializer.data
+            })
+        else:
+            return Response({
+                'success': False,
+                'error': 'Doctor profile not found for current user'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+    @extend_schema(
+        summary="Manage doctor availability",
+        description="Add or update doctor availability schedules",
+        request=DoctorAvailabilitySerializer(many=True),
+        responses={
+            200: DoctorAvailabilitySerializer(many=True)
+        },
+        tags=['Doctors']
+    )
+    @action(detail=True, methods=['post'])
+    def set_availability(self, request, pk=None):
+        """
+        Set availability schedule for a doctor.
+
+        Accepts a list of availability slots and replaces existing schedule.
+        """
+        doctor = self.get_object()
+
+        # Validate and create availability slots
+        availability_data = request.data if isinstance(request.data, list) else [request.data]
+
+        # Delete existing availability
+        doctor.availability.all().delete()
+
+        # Create new availability slots
+        created_slots = []
+        for slot_data in availability_data:
+            slot_data['tenant_id'] = request.tenant_id
+            serializer = DoctorAvailabilitySerializer(data=slot_data)
+            if serializer.is_valid(raise_exception=True):
+                availability = serializer.save(doctor=doctor)
+                created_slots.append(availability)
+
+        # Return created slots
+        output_serializer = DoctorAvailabilitySerializer(created_slots, many=True)
+        return Response({
+            'success': True,
+            'message': f'Created {len(created_slots)} availability slots',
+            'data': output_serializer.data
+        })
+
+    @extend_schema(
+        summary="Get doctor statistics",
+        description="Get statistics for a specific doctor",
+        responses={
+            200: {
+                'description': 'Doctor statistics',
+                'type': 'object'
+            }
+        },
+        tags=['Doctors']
+    )
+    @action(detail=True, methods=['get'])
+    def statistics(self, request, pk=None):
+        """
+        Get statistics for a specific doctor.
+
+        Returns consultation counts, ratings, and other metrics.
+        """
+        doctor = self.get_object()
+
         return Response({
             'success': True,
             'data': {
-                'roles': [g.name for g in groups]
+                'total_consultations': doctor.total_consultations,
+                'average_rating': float(doctor.average_rating),
+                'total_reviews': doctor.total_reviews,
+                'status': doctor.status,
+                'years_of_experience': doctor.years_of_experience,
+                'specialties_count': doctor.specialties.count(),
+                'is_license_valid': doctor.is_license_valid,
             }
         })
-    
-    @extend_schema(
-        summary="Assign role to user",
-        description="Assign a role (group) to user (requires change_user permission)",
-        request={
-            'application/json': {
-                'type': 'object',
-                'properties': {
-                    'role': {'type': 'string', 'example': 'Doctor'}
-                }
-            }
-        },
-        responses={
-            200: OpenApiResponse(description="Role assigned successfully"),
-            403: OpenApiResponse(description="Permission denied"),
-            404: OpenApiResponse(description="Invalid role")
-        },
-        tags=['Users']
-    )
-    @action(detail=True, methods=['post'])
-    def assign_role(self, request, pk=None):
-        """Assign role (add to group) - requires change_user permission"""
-        if not request.user.has_perm('accounts.change_user'):
-            return Response({
-                'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        user = self.get_object()
-        role_name = request.data.get('role')
-        
-        if not role_name:
-            return Response({
-                'success': False,
-                'error': 'Role is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            group = Group.objects.get(name=role_name)
-            user.groups.clear()  # Remove from all groups
-            user.groups.add(group)  # Add to new group
-            
-            return Response({
-                'success': True,
-                'message': f'User assigned to {role_name} role',
-                'data': UserSerializer(user).data
-            })
-        except Group.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Invalid role'
-            }, status=status.HTTP_404_NOT_FOUND)

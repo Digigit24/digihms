@@ -1,5 +1,4 @@
 from django.db import models
-from django.conf import settings
 from django.core.validators import RegexValidator
 import datetime
 import uuid
@@ -41,13 +40,29 @@ class PatientProfile(models.Model):
         message="Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
     )
     
-    # Link to User (optional for walk-ins)
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+    # Link to SuperAdmin User (optional - only for portal access)
+    user_id = models.UUIDField(
+        unique=True,
         null=True,
         blank=True,
-        related_name='patient_profile'
+        db_index=True,
+        help_text="Reference to SuperAdmin CustomUser.id (only if portal access enabled)"
+    )
+
+    # Portal access tracking
+    has_portal_access = models.BooleanField(
+        default=False,
+        help_text="Whether patient has portal login access"
+    )
+    portal_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When portal access was created"
+    )
+    portal_email = models.EmailField(
+        null=True,
+        blank=True,
+        help_text="Email used for portal login"
     )
     
     # Tenant Information
@@ -169,12 +184,11 @@ class PatientProfile(models.Model):
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+    created_by_id = models.UUIDField(
+        db_index=True,
         null=True,
         blank=True,
-        related_name='created_patients'
+        help_text="SuperAdmin user ID who created this patient record"
     )
     
     class Meta:
@@ -183,10 +197,13 @@ class PatientProfile(models.Model):
         verbose_name_plural = 'Patient Profiles'
         ordering = ['-registration_date']
         indexes = [
+            models.Index(fields=['user_id']),
+            models.Index(fields=['tenant_id']),
             models.Index(fields=['patient_id']),
             models.Index(fields=['mobile_primary']),
             models.Index(fields=['last_name', 'first_name']),
             models.Index(fields=['status']),
+            models.Index(fields=['created_by_id']),
         ]
         permissions = [
             ("view_all_patients", "Can view all patient records"),
@@ -275,12 +292,11 @@ class PatientVitals(models.Model):
         on_delete=models.CASCADE,
         related_name='vitals'
     )
-    recorded_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+    recorded_by_id = models.UUIDField(
         null=True,
         blank=True,
-        related_name='recorded_vitals'
+        db_index=True,
+        help_text="SuperAdmin user ID who recorded these vitals"
     )
     
     # Vital signs
@@ -386,12 +402,11 @@ class PatientAllergy(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    recorded_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+    recorded_by_id = models.UUIDField(
         null=True,
         blank=True,
-        related_name='recorded_allergies'
+        db_index=True,
+        help_text="SuperAdmin user ID who recorded this allergy"
     )
     
     class Meta:

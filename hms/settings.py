@@ -153,7 +153,8 @@ else:
 DATABASE_ROUTERS = ['common.database_router.HMSDatabaseRouter']
 
 # --- Auth / Passwords ---
-AUTH_USER_MODEL = 'accounts.User'
+# NO local User model - authentication handled by SuperAdmin
+# AUTH_USER_MODEL is removed - no local user model
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 8}},
@@ -161,11 +162,10 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# --- Authentication Backends (for Django Admin with SuperAdmin JWT) ---
+# --- Authentication Backends (SuperAdmin JWT only) ---
 AUTHENTICATION_BACKENDS = [
-    'common.auth_backends.SuperAdminAuthBackend',
-    'common.auth_backends.JWTAuthBackend',
-    'django.contrib.auth.backends.ModelBackend',  # Keep for local accounts app
+    'common.auth_backends.SuperAdminAuthBackend',  # For admin session login
+    'common.auth_backends.JWTAuthBackend',  # For API JWT authentication
 ]
 
 # --- Session Settings (for Django Admin) ---
