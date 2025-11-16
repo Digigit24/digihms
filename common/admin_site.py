@@ -92,6 +92,89 @@ class TenantAdminSite(AdminSite):
         from .views import admin_logout_view
         return admin_logout_view(request)
 
+    def get_app_list(self, request):
+        """
+        Get the list of apps and models for the admin index.
+        Override to handle tenant-specific models gracefully.
+        """
+        from django.db import connection
+        from django.contrib.admin.sites import site
+
+        app_dict = {}
+
+        for model, model_admin in self._registry.items():
+            app_label = model._meta.app_label
+
+            # Skip models that don't have permission
+            if hasattr(request, 'user') and hasattr(request.user, 'has_module_perms'):
+                if not request.user.has_module_perms(app_label):
+                    continue
+
+            # Try to check if model has table, skip if it doesn't (tenant-specific models)
+            try:
+                # Check if user has permission to view this model
+                has_view_perm = model_admin.has_view_permission(request)
+                has_add_perm = model_admin.has_add_permission(request)
+                has_change_perm = model_admin.has_change_permission(request)
+                has_delete_perm = model_admin.has_delete_permission(request)
+
+                if not (has_view_perm or has_add_perm or has_change_perm or has_delete_perm):
+                    continue
+
+                # Build model dict
+                model_dict = {
+                    'name': str(model._meta.verbose_name_plural),
+                    'object_name': model._meta.object_name,
+                    'perms': {
+                        'add': has_add_perm,
+                        'change': has_change_perm,
+                        'delete': has_delete_perm,
+                        'view': has_view_perm,
+                    },
+                }
+
+                if has_view_perm:
+                    model_dict['view_only'] = not (has_add_perm or has_change_perm or has_delete_perm)
+
+                if has_change_perm or has_view_perm:
+                    model_dict['admin_url'] = reverse(
+                        f'admin:{app_label}_{model._meta.model_name}_changelist',
+                        current_app=self.name
+                    )
+                if has_add_perm:
+                    model_dict['add_url'] = reverse(
+                        f'admin:{app_label}_{model._meta.model_name}_add',
+                        current_app=self.name
+                    )
+
+                # Add to app dict
+                if app_label in app_dict:
+                    app_dict[app_label]['models'].append(model_dict)
+                else:
+                    app_dict[app_label] = {
+                        'name': model._meta.app_config.verbose_name,
+                        'app_label': app_label,
+                        'app_url': reverse(
+                            f'admin:app_list',
+                            kwargs={'app_label': app_label},
+                            current_app=self.name,
+                        ),
+                        'has_module_perms': True,
+                        'models': [model_dict],
+                    }
+            except Exception as e:
+                # Skip models that cause errors (e.g., table doesn't exist in current database)
+                logger.debug(f"Skipping model {model._meta.label} due to error: {e}")
+                continue
+
+        # Sort the apps and models
+        app_list = list(app_dict.values())
+        app_list.sort(key=lambda x: x['name'].lower())
+        for app in app_list:
+            app['models'].sort(key=lambda x: x['name'])
+
+        return app_list
+
     def index(self, request, extra_context=None):
         """
         Display the main admin index page, which lists all available apps.
@@ -112,6 +195,9 @@ class TenantAdminSite(AdminSite):
                 'enabled_modules': getattr(request.user, 'enabled_modules', []),
                 'is_tenant_admin': True
             })
+
+        # Get app list with error handling for tenant-specific models
+        extra_context['app_list'] = self.get_app_list(request)
 
         return super().index(request, extra_context)
 
