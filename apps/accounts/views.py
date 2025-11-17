@@ -1,174 +1,126 @@
-from rest_framework import generics, status, viewsets
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated, DjangoModelPermissions
-from rest_framework.authtoken.models import Token
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
-from django.db.models import Q
+"""
+Accounts Views - SuperAdmin API Proxy
 
+These views proxy requests to the SuperAdmin backend APIs for user and role management.
+They validate input, call the appropriate API endpoints, and return formatted responses.
+"""
+
+from rest_framework import status, viewsets, generics
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import (
-    extend_schema, 
+    extend_schema,
     extend_schema_view,
     OpenApiParameter,
     OpenApiExample,
     OpenApiResponse
 )
+import logging
 
+from .api_client import SuperAdminAPIClient, SuperAdminAPIError
 from .serializers import (
-    UserCreateWithProfileSerializer,
     UserSerializer,
+    UserCreateSerializer,
+    RoleSerializer,
     LoginSerializer,
-    ChangePasswordSerializer
+    RegisterSerializer,
+    ChangePasswordSerializer,
+    TokenRefreshSerializer,
+    AssignRolesSerializer,
+    RemoveRoleSerializer,
+    LoginResponseSerializer,
+    RegisterResponseSerializer,
+    SuccessMessageSerializer,
+    ErrorResponseSerializer,
 )
 
-User = get_user_model()
+logger = logging.getLogger(__name__)
 
+
+# ==================== Authentication Views ====================
 
 @extend_schema(tags=['Authentication'])
-class RegisterView(generics.CreateAPIView):
+class RegisterView(generics.GenericAPIView):
     """
-    User Registration with Profile
-    
-    Register a new user account with optional profile attachment.
-    
-    Supported scenarios:
-    1. Staff member (no profile required): Administrator, Receptionist, Nurse, etc.
-    2. Doctor (doctor_profile required)
-    3. Patient (patient_profile required)
+    Tenant Registration
+
+    Register a new tenant with an admin user via SuperAdmin backend.
+    This will create a new tenant, admin user, and return JWT tokens.
     """
-    queryset = User.objects.all()
-    serializer_class = UserCreateWithProfileSerializer
+    serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
-    
+
     @extend_schema(
-        summary="Register new user with profile",
-        description="Create a new user account with role assignment and optional profile",
-        request=UserCreateWithProfileSerializer,
+        summary="Register new tenant",
+        description="Create new tenant with admin user",
+        request=RegisterSerializer,
         responses={
-            201: OpenApiResponse(
-                response=UserSerializer,
-                description="User created successfully"
-            ),
-            400: OpenApiResponse(description="Bad request - validation errors")
+            201: RegisterResponseSerializer,
+            400: ErrorResponseSerializer
         },
         examples=[
             OpenApiExample(
-                'Doctor Registration Example',
+                'Tenant Registration Example',
                 value={
-                    'email': 'doctor@hospital.com',
-                    'username': 'doctor1',
-                    'password': 'SecurePass123',
-                    'password_confirm': 'SecurePass123',
-                    'first_name': 'John',
-                    'last_name': 'Doe',
-                    'phone': '+919876543210',
-                    'role': 'Doctor',
-                    'doctor_profile': {
-                        'medical_license_number': 'MED123456',
-                        'license_issuing_authority': 'Medical Council of India',
-                        'license_issue_date': '2020-01-01',
-                        'license_expiry_date': '2030-01-01',
-                        'qualifications': 'MBBS, MD',
-                        'specialty_ids': [1, 2],
-                        'years_of_experience': 5,
-                        'consultation_fee': 500.00,
-                        'consultation_duration': 30
-                    }
-                },
-                request_only=True,
-            ),
-            OpenApiExample(
-                'Patient Registration Example',
-                value={
-                    'email': 'patient@example.com',
-                    'username': 'patient1',
-                    'password': 'SecurePass123',
-                    'password_confirm': 'SecurePass123',
-                    'first_name': 'Jane',
-                    'last_name': 'Smith',
-                    'phone': '+919876543210',
-                    'role': 'Patient',
-                    'patient_profile': {
-                        'first_name': 'Jane',
-                        'last_name': 'Smith',
-                        'date_of_birth': '1990-05-15',
-                        'gender': 'female',
-                        'mobile_primary': '+919876543210',
-                        'address_line1': '123 Main Street',
-                        'city': 'Mumbai',
-                        'state': 'Maharashtra',
-                        'pincode': '400001',
-                        'blood_group': 'O+',
-                        'emergency_contact_name': 'John Smith',
-                        'emergency_contact_phone': '+919876543211',
-                        'emergency_contact_relation': 'Spouse'
-                    }
-                },
-                request_only=True,
-            ),
-            OpenApiExample(
-                'Staff Registration Example (No Profile)',
-                value={
-                    'email': 'receptionist@hospital.com',
-                    'username': 'reception1',
-                    'password': 'SecurePass123',
-                    'password_confirm': 'SecurePass123',
-                    'first_name': 'Mary',
-                    'last_name': 'Johnson',
-                    'phone': '+919876543210',
-                    'role': 'Receptionist'
+                    'tenant_name': 'City Hospital',
+                    'tenant_slug': 'city-hospital',
+                    'admin_email': 'admin@cityhospital.com',
+                    'admin_password': 'SecurePass123',
+                    'admin_password_confirm': 'SecurePass123',
+                    'admin_first_name': 'John',
+                    'admin_last_name': 'Doe',
+                    'enabled_modules': ['crm', 'whatsapp', 'meetings', 'hms']
                 },
                 request_only=True,
             ),
         ]
     )
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data, context={'request': request})
+    def post(self, request):
+        """Handle tenant registration"""
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        user = serializer.save()
-        
-        # Generate token
-        token, created = Token.objects.get_or_create(user=user)
-        
-        return Response({
-            'success': True,
-            'data': {
-                'token': token.key,
-                'user': UserSerializer(user).data
-            }
-        }, status=status.HTTP_201_CREATED)
+
+        try:
+            client = SuperAdminAPIClient()
+            result = client.register(serializer.validated_data)
+
+            logger.info(f"New tenant registered: {serializer.validated_data['tenant_slug']}")
+
+            return Response(result, status=status.HTTP_201_CREATED)
+
+        except SuperAdminAPIError as e:
+            logger.warning(f"Registration failed: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message,
+                'detail': e.response_data
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(tags=['Authentication'])
 class LoginView(generics.GenericAPIView):
     """
     User Login
-    
-    Authenticate user and receive an authentication token.
-    Use this token in the Authorization header for subsequent requests.
+
+    Authenticate user via SuperAdmin backend and receive JWT tokens.
     """
     serializer_class = LoginSerializer
     permission_classes = [AllowAny]
-    
+
     @extend_schema(
         summary="User login",
-        description="Authenticate and receive token",
+        description="Authenticate and receive JWT tokens",
         request=LoginSerializer,
         responses={
-            200: OpenApiResponse(
-                response=UserSerializer,
-                description="Login successful"
-            ),
-            400: OpenApiResponse(description="Invalid credentials")
+            200: LoginResponseSerializer,
+            401: ErrorResponseSerializer
         },
         examples=[
             OpenApiExample(
                 'Login Example',
                 value={
-                    'email': 'doctor@hospital.com',
+                    'email': 'admin@cityhospital.com',
                     'password': 'SecurePass123'
                 },
                 request_only=True,
@@ -176,353 +128,698 @@ class LoginView(generics.GenericAPIView):
         ]
     )
     def post(self, request):
+        """Handle user login"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data['user']
-        
-        # Get or create token
-        token, created = Token.objects.get_or_create(user=user)
-        
-        # Login user (session)
-        login(request, user)
-        
-        return Response({
-            'success': True,
-            'data': {
-                'token': token.key,
-                'user': UserSerializer(user).data
-            }
-        })
+
+        try:
+            client = SuperAdminAPIClient()
+            result = client.login(
+                email=serializer.validated_data['email'],
+                password=serializer.validated_data['password']
+            )
+
+            logger.info(f"User logged in successfully: {serializer.validated_data['email']}")
+
+            # Store JWT token in session for admin access
+            if 'tokens' in result and 'access' in result['tokens']:
+                request.session['jwt_token'] = result['tokens']['access']
+                if 'user' in result and 'tenant' in result['user']:
+                    request.session['tenant_id'] = result['user']['tenant']
+                    request.session['tenant_slug'] = result['user'].get('tenant_name')
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.warning(f"Login failed for {serializer.validated_data['email']}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_401_UNAUTHORIZED)
 
 
 @extend_schema(tags=['Authentication'])
 class LogoutView(generics.GenericAPIView):
     """
     User Logout
-    
-    Delete the authentication token and logout the user.
+
+    Logout user and blacklist refresh token.
     """
     permission_classes = [IsAuthenticated]
-    
+
     @extend_schema(
         summary="User logout",
-        description="Delete authentication token and logout",
-        request=None,
+        description="Logout and blacklist tokens",
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'refresh_token': {'type': 'string'}
+                }
+            }
+        },
         responses={
-            200: OpenApiResponse(description="Logged out successfully")
+            200: SuccessMessageSerializer,
+            400: ErrorResponseSerializer
         }
     )
     def post(self, request):
+        """Handle user logout"""
+        refresh_token = request.data.get('refresh_token')
+
+        if not refresh_token:
+            return Response({
+                'success': False,
+                'error': 'Refresh token is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            # Delete token
-            request.user.auth_token.delete()
-        except:
-            pass
-        
-        logout(request)
-        
-        return Response({
-            'success': True,
-            'message': 'Logged out successfully'
-        })
+            # Get access token from request
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            access_token = None
+            if auth_header.startswith('Bearer '):
+                access_token = auth_header.split(' ')[1]
+
+            client = SuperAdminAPIClient(request)
+            result = client.logout(token=access_token, refresh_token=refresh_token)
+
+            # Clear session
+            if hasattr(request, 'session'):
+                request.session.flush()
+
+            logger.info(f"User logged out successfully")
+
+            return Response({
+                'success': True,
+                'message': 'Logged out successfully'
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.warning(f"Logout failed: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(tags=['Authentication'])
-class MeView(generics.RetrieveUpdateAPIView):
+class MeView(generics.GenericAPIView):
     """
     Current User Profile
-    
-    Get or update the authenticated user's profile.
+
+    Get or update the authenticated user's profile via SuperAdmin backend.
     """
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
-    
-    def get_object(self):
-        return self.request.user
-    
+
     @extend_schema(
         summary="Get current user profile",
-        description="Retrieve authenticated user's profile information",
+        description="Retrieve authenticated user's profile",
         responses={200: UserSerializer}
     )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
+    def get(self, request):
+        """Get current user profile"""
+        try:
+            client = SuperAdminAPIClient(request)
+            user_data = client.get_me()
+
+            return Response({
+                'success': True,
+                'data': user_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get current user: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
     @extend_schema(
         summary="Update current user profile",
-        description="Update authenticated user's profile information",
+        description="Update authenticated user's profile",
         request=UserSerializer,
         responses={200: UserSerializer}
     )
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+    def patch(self, request):
+        """Update current user profile"""
+        serializer = self.get_serializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
+
+        try:
+            client = SuperAdminAPIClient(request)
+            user_data = client.update_me(serializer.validated_data)
+
+            return Response({
+                'success': True,
+                'data': user_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to update current user: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request):
+        """Full update of current user profile"""
+        return self.patch(request)
 
 
 @extend_schema(tags=['Authentication'])
 class ChangePasswordView(generics.GenericAPIView):
     """
     Change Password
-    
-    Change the authenticated user's password.
-    A new token will be generated after password change.
+
+    Change the authenticated user's password via SuperAdmin backend.
     """
     serializer_class = ChangePasswordSerializer
     permission_classes = [IsAuthenticated]
-    
+
     @extend_schema(
         summary="Change user password",
-        description="Change password and receive new token",
+        description="Change password and receive new tokens",
         request=ChangePasswordSerializer,
         responses={
-            200: OpenApiResponse(description="Password changed successfully"),
-            400: OpenApiResponse(description="Invalid old password")
-        },
-        examples=[
-            OpenApiExample(
-                'Change Password Example',
-                value={
-                    'old_password': 'OldPass123',
-                    'new_password': 'NewSecurePass123',
-                    'new_password_confirm': 'NewSecurePass123'
-                },
-                request_only=True,
-            ),
-        ]
+            200: SuccessMessageSerializer,
+            400: ErrorResponseSerializer
+        }
     )
     def post(self, request):
+        """Handle password change"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        user = request.user
-        
-        # Check old password
-        if not user.check_password(serializer.validated_data['old_password']):
+
+        try:
+            # Get access token from request
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            access_token = None
+            if auth_header.startswith('Bearer '):
+                access_token = auth_header.split(' ')[1]
+
+            client = SuperAdminAPIClient(request)
+            result = client.change_password(
+                token=access_token,
+                old_password=serializer.validated_data['old_password'],
+                new_password=serializer.validated_data['new_password'],
+                new_password_confirm=serializer.validated_data['new_password_confirm']
+            )
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Password change failed: {e.message}")
             return Response({
                 'success': False,
-                'error': 'Invalid old password'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Set new password
-        user.set_password(serializer.validated_data['new_password'])
-        user.save()
-        
-        # Regenerate token
-        Token.objects.filter(user=user).delete()
-        token = Token.objects.create(user=user)
-        
-        return Response({
-            'success': True,
-            'message': 'Password changed successfully',
-            'data': {'token': token.key}
-        })
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
 
+
+@extend_schema(tags=['Authentication'])
+class TokenRefreshView(generics.GenericAPIView):
+    """
+    Refresh JWT Token
+
+    Get a new access token using refresh token.
+    """
+    serializer_class = TokenRefreshSerializer
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Refresh JWT token",
+        description="Get new access token",
+        request=TokenRefreshSerializer,
+        responses={200: OpenApiResponse(description="New access token")}
+    )
+    def post(self, request):
+        """Handle token refresh"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient()
+            result = client.refresh_token(serializer.validated_data['refresh'])
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Token refresh failed: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_401_UNAUTHORIZED)
+
+
+# ==================== User Management ViewSet ====================
 
 @extend_schema_view(
     list=extend_schema(
         summary="List users",
-        description="Get list of users (requires view_user permission)",
+        description="Get list of users for current tenant",
         parameters=[
-            OpenApiParameter(
-                name='search',
-                type=str,
-                description='Search by name, email, or username',
-                required=False
-            ),
-            OpenApiParameter(
-                name='role',
-                type=str,
-                description='Filter by role/group name',
-                required=False
-            ),
+            OpenApiParameter(name='search', type=str, description='Search by name or email'),
+            OpenApiParameter(name='role', type=str, description='Filter by role'),
         ],
         tags=['Users']
     ),
     retrieve=extend_schema(
         summary="Get user details",
-        description="Retrieve detailed information about a specific user (requires view_user permission)",
+        description="Retrieve detailed information about a specific user",
+        tags=['Users']
+    ),
+    create=extend_schema(
+        summary="Create user",
+        description="Create a new user in the current tenant",
         tags=['Users']
     ),
     update=extend_schema(
         summary="Update user",
-        description="Update user information (requires change_user permission or self)",
+        description="Update user information",
         tags=['Users']
     ),
     partial_update=extend_schema(
         summary="Partial update user",
-        description="Partially update user information (requires change_user permission or self)",
+        description="Partially update user information",
         tags=['Users']
     ),
     destroy=extend_schema(
         summary="Delete user",
-        description="Delete a user (requires delete_user permission)",
+        description="Delete a user",
         tags=['Users']
     ),
 )
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(viewsets.ViewSet):
     """
-    User Management
-    
-    CRUD operations for user management using Django model permissions.
-    - Users with view_user permission can view users
-    - Users with change_user permission can update users (or update themselves)
-    - Users with delete_user permission can delete users
+    User Management via SuperAdmin API
+
+    CRUD operations for user management through SuperAdmin backend.
     """
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, DjangoModelPermissions]
-    
-    def get_queryset(self):
-        """Filter queryset based on permissions"""
-        queryset = User.objects.all()
-        
-        # Users without view_user permission can only see themselves
-        if not self.request.user.has_perm('accounts.view_user'):
-            queryset = queryset.filter(id=self.request.user.id)
-        
-        # Search
-        search = self.request.query_params.get('search')
-        if search:
-            queryset = queryset.filter(
-                Q(first_name__icontains=search) |
-                Q(last_name__icontains=search) |
-                Q(email__icontains=search) |
-                Q(username__icontains=search)
-            )
-        
-        # Filter by role (group)
-        role = self.request.query_params.get('role')
-        if role:
-            queryset = queryset.filter(groups__name=role)
-        
-        return queryset.distinct().order_by('-created_at')
-    
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        
-        # Allow self-update even without change_user permission
-        has_perm = request.user.has_perm('accounts.change_user')
-        is_self = instance.id == request.user.id
-        
-        if not has_perm and not is_self:
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        """Get appropriate serializer class"""
+        if self.action == 'create':
+            return UserCreateSerializer
+        return UserSerializer
+
+    def list(self, request):
+        """List users"""
+        try:
+            client = SuperAdminAPIClient(request)
+            users = client.get_users(**request.query_params.dict())
+
+            serializer = UserSerializer(users, many=True)
+
+            return Response({
+                'success': True,
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get users: {e.message}")
             return Response({
                 'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def retrieve(self, request, pk=None):
+        """Get user by ID"""
+        try:
+            client = SuperAdminAPIClient(request)
+            user_data = client.get_user(pk)
+
+            return Response({
+                'success': True,
+                'data': user_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get user {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_404_NOT_FOUND)
+
+    def create(self, request):
+        """Create new user"""
+        serializer = UserCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response({
-            'success': True,
-            'message': 'User deleted successfully'
-        }, status=status.HTTP_204_NO_CONTENT)
-    
+
+        try:
+            client = SuperAdminAPIClient(request)
+            user_data = client.create_user(serializer.validated_data)
+
+            logger.info(f"User created: {user_data.get('email')}")
+
+            return Response({
+                'success': True,
+                'data': user_data
+            }, status=status.HTTP_201_CREATED)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to create user: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message,
+                'detail': e.response_data
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None):
+        """Update user (PUT)"""
+        serializer = UserSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient(request)
+            user_data = client.update_user(pk, serializer.validated_data, partial=False)
+
+            logger.info(f"User {pk} updated")
+
+            return Response({
+                'success': True,
+                'data': user_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to update user {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, pk=None):
+        """Update user (PATCH)"""
+        serializer = UserSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient(request)
+            user_data = client.update_user(pk, serializer.validated_data, partial=True)
+
+            logger.info(f"User {pk} updated")
+
+            return Response({
+                'success': True,
+                'data': user_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to update user {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        """Delete user"""
+        try:
+            client = SuperAdminAPIClient(request)
+            client.delete_user(pk)
+
+            logger.info(f"User {pk} deleted")
+
+            return Response({
+                'success': True,
+                'message': 'User deleted successfully'
+            }, status=status.HTTP_204_NO_CONTENT)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to delete user {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
     @extend_schema(
-        summary="Get available roles",
-        description="List all available user roles (groups)",
-        responses={200: OpenApiResponse(description="List of roles")},
-        tags=['Users']
-    )
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
-    def roles(self, request):
-        """Get available roles (groups)"""
-        groups = Group.objects.all()
-        return Response({
-            'success': True,
-            'data': {
-                'roles': [g.name for g in groups]
-            }
-        })
-    
-    @extend_schema(
-        summary="Assign role to user",
-        description="Assign a role (group) to user (requires change_user permission)",
-        request={
-            'application/json': {
-                'type': 'object',
-                'properties': {
-                    'role': {'type': 'string', 'example': 'Doctor'}
-                }
-            }
-        },
-        responses={
-            200: OpenApiResponse(description="Role assigned successfully"),
-            403: OpenApiResponse(description="Permission denied"),
-            404: OpenApiResponse(description="Invalid role")
-        },
+        summary="Assign roles to user",
+        description="Assign roles to a user",
+        request=AssignRolesSerializer,
+        responses={200: SuccessMessageSerializer},
         tags=['Users']
     )
     @action(detail=True, methods=['post'])
-    def assign_role(self, request, pk=None):
-        """Assign role (add to group) - requires change_user permission"""
-        if not request.user.has_perm('accounts.change_user'):
-            return Response({
-                'success': False,
-                'error': 'Permission denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        user = self.get_object()
-        role_name = request.data.get('role')
-        
-        if not role_name:
-            return Response({
-                'success': False,
-                'error': 'Role is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+    def assign_roles(self, request, pk=None):
+        """Assign roles to user"""
+        serializer = AssignRolesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         try:
-            group = Group.objects.get(name=role_name)
-            user.groups.clear()  # Remove from all groups
-            user.groups.add(group)  # Add to new group
-            
+            client = SuperAdminAPIClient(request)
+            result = client.assign_roles(pk, serializer.validated_data['role_ids'])
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to assign roles to user {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        summary="Remove role from user",
+        description="Remove a role from user",
+        request=RemoveRoleSerializer,
+        responses={200: SuccessMessageSerializer},
+        tags=['Users']
+    )
+    @action(detail=True, methods=['delete'])
+    def remove_role(self, request, pk=None):
+        """Remove role from user"""
+        serializer = RemoveRoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient(request)
+            result = client.remove_role(pk, serializer.validated_data['role_id'])
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to remove role from user {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+
+# ==================== Role Management ViewSet ====================
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List roles",
+        description="Get list of roles for current tenant",
+        tags=['Roles']
+    ),
+    retrieve=extend_schema(
+        summary="Get role details",
+        description="Retrieve detailed information about a specific role",
+        tags=['Roles']
+    ),
+    create=extend_schema(
+        summary="Create role",
+        description="Create a new role",
+        tags=['Roles']
+    ),
+    update=extend_schema(
+        summary="Update role",
+        description="Update role information",
+        tags=['Roles']
+    ),
+    partial_update=extend_schema(
+        summary="Partial update role",
+        description="Partially update role information",
+        tags=['Roles']
+    ),
+    destroy=extend_schema(
+        summary="Delete role",
+        description="Delete a role",
+        tags=['Roles']
+    ),
+)
+class RoleViewSet(viewsets.ViewSet):
+    """
+    Role Management via SuperAdmin API
+
+    CRUD operations for role management through SuperAdmin backend.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = RoleSerializer
+
+    def list(self, request):
+        """List roles"""
+        try:
+            client = SuperAdminAPIClient(request)
+            roles = client.get_roles(**request.query_params.dict())
+
+            serializer = RoleSerializer(roles, many=True)
+
             return Response({
                 'success': True,
-                'message': f'User assigned to {role_name} role',
-                'data': UserSerializer(user).data
-            })
-        except Group.DoesNotExist:
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get roles: {e.message}")
             return Response({
                 'success': False,
-                'error': 'Invalid role'
-            }, status=status.HTTP_404_NOT_FOUND)
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def retrieve(self, request, pk=None):
+        """Get role by ID"""
+        try:
+            client = SuperAdminAPIClient(request)
+            role_data = client.get_role(pk)
+
+            return Response({
+                'success': True,
+                'data': role_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get role {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_404_NOT_FOUND)
+
+    def create(self, request):
+        """Create new role"""
+        serializer = RoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient(request)
+            role_data = client.create_role(serializer.validated_data)
+
+            logger.info(f"Role created: {role_data.get('name')}")
+
+            return Response({
+                'success': True,
+                'data': role_data
+            }, status=status.HTTP_201_CREATED)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to create role: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message,
+                'detail': e.response_data
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None):
+        """Update role (PUT)"""
+        serializer = RoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient(request)
+            role_data = client.update_role(pk, serializer.validated_data, partial=False)
+
+            logger.info(f"Role {pk} updated")
+
+            return Response({
+                'success': True,
+                'data': role_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to update role {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, pk=None):
+        """Update role (PATCH)"""
+        serializer = RoleSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            client = SuperAdminAPIClient(request)
+            role_data = client.update_role(pk, serializer.validated_data, partial=True)
+
+            logger.info(f"Role {pk} updated")
+
+            return Response({
+                'success': True,
+                'data': role_data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to update role {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        """Delete role"""
+        try:
+            client = SuperAdminAPIClient(request)
+            client.delete_role(pk)
+
+            logger.info(f"Role {pk} deleted")
+
+            return Response({
+                'success': True,
+                'message': 'Role deleted successfully'
+            }, status=status.HTTP_204_NO_CONTENT)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to delete role {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        summary="Get role members",
+        description="Get list of users with this role",
+        responses={200: UserSerializer(many=True)},
+        tags=['Roles']
+    )
+    @action(detail=True, methods=['get'])
+    def members(self, request, pk=None):
+        """Get role members"""
+        try:
+            client = SuperAdminAPIClient(request)
+            members = client.get_role_members(pk)
+
+            serializer = UserSerializer(members, many=True)
+
+            return Response({
+                'success': True,
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get members for role {pk}: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        summary="Get permissions schema",
+        description="Get the available permissions schema",
+        responses={200: OpenApiResponse(description="Permissions schema")},
+        tags=['Roles']
+    )
+    @action(detail=False, methods=['get'])
+    def permissions_schema(self, request):
+        """Get permissions schema"""
+        try:
+            client = SuperAdminAPIClient(request)
+            schema = client.get_permissions_schema()
+
+            return Response(schema, status=status.HTTP_200_OK)
+
+        except SuperAdminAPIError as e:
+            logger.error(f"Failed to get permissions schema: {e.message}")
+            return Response({
+                'success': False,
+                'error': e.message
+            }, status=e.status_code or status.HTTP_400_BAD_REQUEST)
