@@ -1,111 +1,151 @@
-from django.contrib.auth.models import AbstractUser
+"""
+Accounts Models - API Proxy Models
+
+This module provides proxy models that represent users and roles from the SuperAdmin backend.
+No database tables are created for these models - they exist only as API data containers.
+"""
+
 from django.db import models
 
 
-class User(AbstractUser):
+# NOTE: We keep the User model for Django Admin compatibility but it's not used for HMS users
+# HMS users are managed through the SuperAdmin API
+
+class User(models.Model):
     """
-    Custom user model - Role is determined by Group membership.
-    DO NOT add role field - use groups instead.
+    Minimal User model for Django Admin compatibility.
+
+    This model is NOT used for HMS user management. All HMS users are managed
+    through the SuperAdmin backend API.
+
+    This model only exists to satisfy Django's AUTH_USER_MODEL requirement
+    and should not be used directly in the application.
     """
-    
-    # Contact Information
-    email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=15, blank=True, null=True)
-    alternate_phone = models.CharField(max_length=15, blank=True, null=True)
-    
-    # Personal Information
-    date_of_birth = models.DateField(blank=True, null=True)
-    gender = models.CharField(
-        max_length=10,
-        choices=[
-            ('male', 'Male'),
-            ('female', 'Female'),
-            ('other', 'Other')
-        ],
-        blank=True,
-        null=True
-    )
-    
-    # Address
-    address_line1 = models.CharField(max_length=200, blank=True, null=True)
-    address_line2 = models.CharField(max_length=200, blank=True, null=True)
-    city = models.CharField(max_length=100, blank=True, null=True)
-    state = models.CharField(max_length=100, blank=True, null=True)
-    country = models.CharField(max_length=100, default='India')
-    pincode = models.CharField(max_length=10, blank=True, null=True)
-    
-    # Profile
-    profile_picture = models.ImageField(
-        upload_to='profiles/',
-        blank=True,
-        null=True
-    )
-    bio = models.TextField(blank=True, null=True)
-    
-    # Hospital-specific (optional fields)
-    employee_id = models.CharField(
-        max_length=20,
-        unique=True,
-        blank=True,
-        null=True
-    )
-    department = models.CharField(max_length=100, blank=True, null=True)
-    joining_date = models.DateField(blank=True, null=True)
-    
-    # Status
-    is_verified = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=True)
-    
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username']
-    
+
     class Meta:
         db_table = 'users'
-        verbose_name = 'User'
-        verbose_name_plural = 'Users'
-        permissions = [
-            ("view_all_users", "Can view all users"),
-            ("manage_staff", "Can manage staff members"),
-        ]
-        indexes = [
-            models.Index(fields=['email']),
-            models.Index(fields=['username']),
-            models.Index(fields=['employee_id']),
-        ]
-    
+        managed = False  # Don't create or manage this table
+        verbose_name = 'User (SuperAdmin Managed)'
+        verbose_name_plural = 'Users (SuperAdmin Managed)'
+
     def __str__(self):
-        return f"{self.get_full_name()} ({self.email})" if self.get_full_name() else self.email
-    
+        return "SuperAdmin Managed User - Use API Client"
+
+
+# ==================== API Proxy Classes ====================
+# These classes represent data from the SuperAdmin API
+# They are not Django models and do not interact with the database
+
+class APIUser:
+    """
+    Proxy class representing a User from SuperAdmin API
+
+    This is not a Django model - it's a simple data container for API responses.
+    """
+
+    def __init__(self, data: dict):
+        """
+        Initialize from API response data
+
+        Args:
+            data: Dictionary containing user data from SuperAdmin API
+        """
+        self.id = data.get('id')
+        self.email = data.get('email')
+        self.phone = data.get('phone')
+        self.first_name = data.get('first_name', '')
+        self.last_name = data.get('last_name', '')
+        self.tenant = data.get('tenant')
+        self.tenant_name = data.get('tenant_name')
+        self.roles = data.get('roles', [])
+        self.is_super_admin = data.get('is_super_admin', False)
+        self.profile_picture = data.get('profile_picture')
+        self.timezone = data.get('timezone', 'Asia/Kolkata')
+        self.is_active = data.get('is_active', True)
+        self.date_joined = data.get('date_joined')
+
+        # Store original data
+        self._data = data
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary"""
+        return self._data
+
+    def __str__(self):
+        return f"{self.email} ({self.tenant_name or 'No Tenant'})"
+
+    def __repr__(self):
+        return f"<APIUser: {self.email}>"
+
     @property
-    def role(self):
-        """Returns primary role based on group membership (for display only)"""
-        groups = self.groups.values_list('name', flat=True)
-        role_priority = [
-            'Administrator',
-            'Doctor',
-            'Nurse',
-            'Receptionist',
-            'Pharmacist',
-            'Lab Technician',
-            'Patient'
-        ]
-        for role in role_priority:
-            if role in groups:
-                return role
-        return 'No Role'
-    
+    def full_name(self):
+        """Get full name"""
+        return f"{self.first_name} {self.last_name}".strip() or self.email
+
     @property
-    def full_address(self):
-        """Returns formatted full address"""
-        parts = [
-            self.address_line1,
-            self.address_line2,
-            self.city,
-            self.state,
-            self.pincode
-        ]
-        return ', '.join(filter(None, parts))
+    def role_names(self):
+        """Get list of role names"""
+        return [role.get('name') for role in self.roles if isinstance(role, dict)]
+
+
+class APIRole:
+    """
+    Proxy class representing a Role from SuperAdmin API
+
+    This is not a Django model - it's a simple data container for API responses.
+    """
+
+    def __init__(self, data: dict):
+        """
+        Initialize from API response data
+
+        Args:
+            data: Dictionary containing role data from SuperAdmin API
+        """
+        self.id = data.get('id')
+        self.tenant = data.get('tenant')
+        self.name = data.get('name')
+        self.description = data.get('description', '')
+        self.permissions = data.get('permissions', {})
+        self.is_active = data.get('is_active', True)
+        self.created_by = data.get('created_by')
+        self.created_by_email = data.get('created_by_email')
+        self.member_count = data.get('member_count', 0)
+        self.created_at = data.get('created_at')
+        self.updated_at = data.get('updated_at')
+
+        # Store original data
+        self._data = data
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary"""
+        return self._data
+
+    def __str__(self):
+        return f"{self.name} ({self.member_count} members)"
+
+    def __repr__(self):
+        return f"<APIRole: {self.name}>"
+
+    def has_permission(self, permission_path: str) -> bool:
+        """
+        Check if role has a specific permission
+
+        Args:
+            permission_path: Dot-separated permission path (e.g., 'crm.leads.create')
+
+        Returns:
+            True if role has the permission
+        """
+        parts = permission_path.split('.')
+        perms = self.permissions
+
+        for part in parts:
+            if isinstance(perms, dict):
+                perms = perms.get(part)
+                if perms is None:
+                    return False
+            else:
+                return bool(perms)
+
+        return bool(perms)
