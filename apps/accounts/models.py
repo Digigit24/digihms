@@ -19,8 +19,25 @@ class User(models.Model):
     through the SuperAdmin backend API.
 
     This model only exists to satisfy Django's AUTH_USER_MODEL requirement
-    and should not be used directly in the application.
+    and for ForeignKey relationships in other models.
+
+    NOTE: This is a proxy model with managed=False, so no migrations are created.
     """
+
+    # Basic fields required for Django and ForeignKey relationships
+    id = models.BigAutoField(primary_key=True)
+    email = models.EmailField(unique=True)
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    is_superuser = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(auto_now_add=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+
+    # Required for Django's authentication
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
 
     class Meta:
         db_table = 'users'
@@ -29,7 +46,15 @@ class User(models.Model):
         verbose_name_plural = 'Users (SuperAdmin Managed)'
 
     def __str__(self):
-        return "SuperAdmin Managed User - Use API Client"
+        return self.email or "SuperAdmin Managed User"
+
+    def get_full_name(self):
+        """Return the full name of the user."""
+        return f"{self.first_name} {self.last_name}".strip() or self.email
+
+    def get_short_name(self):
+        """Return the short name for the user."""
+        return self.first_name or self.email
 
 
 # ==================== API Proxy Classes ====================
