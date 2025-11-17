@@ -6,13 +6,43 @@ No database tables are created for these models - they exist only as API data co
 """
 
 from django.db import models
-from django.core.exceptions import ValidationError
-from django.utils import timezone
-import uuid
+from django.contrib.auth.models import BaseUserManager
 
 
 # NOTE: We keep the User model for Django Admin compatibility but it's not used for HMS users
 # HMS users are managed through the SuperAdmin API
+
+
+class UserManager(BaseUserManager):
+    """
+    Custom user manager for the User model.
+
+    This manager is not used for creating users (users are created via SuperAdmin API),
+    but is required for Django's authentication system.
+    """
+
+    def get_queryset(self):
+        """Override to prevent database queries"""
+        return super().get_queryset()
+
+    def create_user(self, email, password=None, **extra_fields):
+        """
+        Not implemented - users should be created via SuperAdmin API
+        """
+        raise NotImplementedError(
+            "User creation should be done via SuperAdmin API. "
+            "Use the accounts app API endpoints instead."
+        )
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        """
+        Not implemented - superusers should be created via SuperAdmin API
+        """
+        raise NotImplementedError(
+            "Superuser creation should be done via SuperAdmin API. "
+            "Use the SuperAdmin backend instead."
+        )
+
 
 class User(models.Model):
     """
@@ -22,8 +52,29 @@ class User(models.Model):
     through the SuperAdmin backend API.
 
     This model only exists to satisfy Django's AUTH_USER_MODEL requirement
-    and should not be used directly in the application.
+    and for ForeignKey relationships in other models.
+
+    NOTE: This is a proxy model with managed=False, so no migrations are created.
     """
+
+    # Basic fields required for Django and ForeignKey relationships
+    id = models.BigAutoField(primary_key=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=128, blank=True)  # Not used, but required by Django
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    is_superuser = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(auto_now_add=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+
+    # Required for Django's authentication
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
+
+    # Custom manager
+    objects = UserManager()
 
     class Meta:
         db_table = 'users'
@@ -32,7 +83,59 @@ class User(models.Model):
         verbose_name_plural = 'Users (SuperAdmin Managed)'
 
     def __str__(self):
-        return "SuperAdmin Managed User - Use API Client"
+        return self.email or "SuperAdmin Managed User"
+
+    def get_full_name(self):
+        """Return the full name of the user."""
+        return f"{self.first_name} {self.last_name}".strip() or self.email
+
+    def get_short_name(self):
+        """Return the short name for the user."""
+        return self.first_name or self.email
+
+    def set_password(self, raw_password):
+        """
+        Not implemented - passwords are managed by SuperAdmin
+        """
+        raise NotImplementedError(
+            "Password management should be done via SuperAdmin API. "
+            "Use the change-password endpoint instead."
+        )
+
+    def check_password(self, raw_password):
+        """
+        Not implemented - password checking is done by SuperAdmin
+        """
+        return False
+
+    def has_perm(self, perm, obj=None):
+        """
+        Permission checking - delegates to authentication backend
+        """
+        # This will be handled by the authentication backend
+        return True if self.is_superuser else False
+
+    def has_perms(self, perm_list, obj=None):
+        """
+        Check multiple permissions
+        """
+        return all(self.has_perm(perm, obj) for perm in perm_list)
+
+    def has_module_perms(self, app_label):
+        """
+        Check if user has permissions for app
+        """
+        return True if self.is_superuser else False
+
+    @property
+    def is_anonymous(self):
+        """Always return False - this is an authenticated user model"""
+        return False
+
+    @property
+    def is_authenticated(self):
+        """Always return True - this is an authenticated user model"""
+        return True
 
 
 # ==================== API Proxy Classes ====================
