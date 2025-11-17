@@ -30,6 +30,18 @@ class RoleSerializer(serializers.Serializer):
             raise serializers.ValidationError("Permissions must be a JSON object")
         return value
 
+    class Meta:
+        model = DoctorAvailability
+        fields = [
+            'id', 'day_of_week', 'day_of_week_display', 'start_time', 'end_time',
+            'is_available', 'max_appointments', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'tenant_id']
+
+
+class DoctorProfileListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for doctor profile list view.
 
 class UserSerializer(serializers.Serializer):
     """Serializer for User data from SuperAdmin API"""

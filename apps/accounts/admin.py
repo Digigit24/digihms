@@ -1,25 +1,73 @@
+"""
+DigiHMS Accounts Admin
+
+Admin interface for doctor profiles and specialties.
+NO local User model - authentication via SuperAdmin.
+"""
+
 from django.contrib import admin
-from common.admin_site import tenant_admin_site, TenantModelAdmin
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth import get_user_model
 from django.utils.html import format_html
+from common.admin_site import tenant_admin_site, TenantModelAdmin
+from apps.accounts.models import DoctorProfile, Specialty, DoctorAvailability
 
-User = get_user_model()
 
+@admin.register(Specialty, site=tenant_admin_site)
+class SpecialtyAdmin(TenantModelAdmin):
+    """Admin for medical specialties."""
+    list_display = ['name', 'code', 'department', 'is_active', 'tenant_id']
+    list_filter = ['is_active', 'department']
+    search_fields = ['name', 'code', 'description']
+    readonly_fields = ['tenant_id', 'created_at', 'updated_at']
 
-class DoctorProfileInline(admin.StackedInline):
-    """Inline admin for Doctor Profile"""
-    from apps.doctors.models import DoctorProfile
-    model = DoctorProfile
-    can_delete = False
-    verbose_name_plural = 'Doctor Profile'
-    fk_name = 'user'
-    
     fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'code', 'description', 'department')
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+        ('Tenant & Metadata', {
+            'fields': ('tenant_id', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+class DoctorAvailabilityInline(admin.TabularInline):
+    """Inline admin for doctor availability."""
+    model = DoctorAvailability
+    extra = 1
+    fields = ['day_of_week', 'start_time', 'end_time', 'is_available', 'max_appointments']
+    readonly_fields = ['tenant_id']
+
+
+@admin.register(DoctorProfile, site=tenant_admin_site)
+class DoctorProfileAdmin(TenantModelAdmin):
+    """Admin for doctor profiles."""
+    list_display = [
+        'full_name_display', 'email', 'medical_license_number',
+        'status_badge', 'experience_display', 'license_status',
+        'consultation_fee', 'tenant_id'
+    ]
+    list_filter = ['status', 'is_available_online', 'is_available_offline', 'specialties']
+    search_fields = ['email', 'first_name', 'last_name', 'medical_license_number']
+    readonly_fields = [
+        'user_id', 'email', 'tenant_id', 'last_synced_at',
+        'average_rating', 'total_reviews', 'total_consultations',
+        'license_status_display', 'created_at', 'updated_at'
+    ]
+    filter_horizontal = ['specialties']
+    inlines = [DoctorAvailabilityInline]
+
+    fieldsets = (
+        ('SuperAdmin User Reference', {
+            'fields': ('user_id', 'email', 'first_name', 'last_name', 'last_synced_at'),
+            'description': 'User data cached from SuperAdmin. Email and name sync automatically.'
+        }),
         ('License Information', {
             'fields': (
                 'medical_license_number', 'license_issuing_authority',
-                'license_issue_date', 'license_expiry_date'
+                'license_issue_date', 'license_expiry_date', 'license_status_display'
             )
         }),
         ('Professional Information', {
@@ -29,7 +77,7 @@ class DoctorProfileInline(admin.StackedInline):
         }),
         ('Consultation Details', {
             'fields': (
-                'consultation_fee', 'consultation_duration',
+                'consultation_fee', 'follow_up_fee', 'consultation_duration',
                 'is_available_online', 'is_available_offline'
             )
         }),
@@ -38,244 +86,70 @@ class DoctorProfileInline(admin.StackedInline):
                 'status', 'average_rating', 'total_reviews', 'total_consultations'
             )
         }),
-        ('Additional', {
-            'fields': ('signature', 'languages_spoken')
-        }),
-    )
-    
-    readonly_fields = ['average_rating', 'total_reviews', 'total_consultations']
-    
-    def has_add_permission(self, request, obj=None):
-        if obj and obj.groups.filter(name='Doctor').exists():
-            return not hasattr(obj, 'doctor_profile')
-        return False
-    
-    def has_change_permission(self, request, obj=None):
-        if obj:
-            return obj.groups.filter(name='Doctor').exists()
-        return False
-
-
-class PatientProfileInline(admin.StackedInline):
-    """Inline admin for Patient Profile"""
-    from apps.patients.models import PatientProfile
-    model = PatientProfile
-    can_delete = False
-    verbose_name_plural = 'Patient Profile'
-    fk_name = 'user'
-    
-    fieldsets = (
-        ('Basic Information', {
-            'fields': (
-                'patient_id', 'first_name', 'middle_name', 'last_name',
-                'date_of_birth', 'age', 'gender'
-            )
-        }),
-        ('Contact Information', {
-            'fields': (
-                'mobile_primary', 'mobile_secondary', 'email'
-            )
-        }),
-        ('Address', {
-            'fields': (
-                'address_line1', 'address_line2', 'city',
-                'state', 'country', 'pincode'
-            )
-        }),
-        ('Medical Information', {
-            'fields': (
-                'blood_group', 'height', 'weight', 'bmi'
-            )
-        }),
-        ('Social Information', {
-            'fields': ('marital_status', 'occupation')
-        }),
-        ('Emergency Contact', {
-            'fields': (
-                'emergency_contact_name', 'emergency_contact_phone',
-                'emergency_contact_relation'
-            )
-        }),
-        ('Insurance', {
-            'fields': (
-                'insurance_provider', 'insurance_policy_number',
-                'insurance_expiry_date'
-            )
-        }),
-        ('Hospital Records', {
-            'fields': (
-                'registration_date', 'last_visit_date',
-                'total_visits', 'status'
-            )
-        }),
-    )
-    
-    readonly_fields = ['patient_id', 'age', 'bmi', 'registration_date']
-    
-    def has_add_permission(self, request, obj=None):
-        if obj and obj.groups.filter(name='Patient').exists():
-            return not hasattr(obj, 'patient_profile')
-        return False
-    
-    def has_change_permission(self, request, obj=None):
-        if obj:
-            return obj.groups.filter(name='Patient').exists()
-        return False
-
-
-@admin.register(User)
-class UserAdmin(BaseUserAdmin):
-    """Custom User Admin with Profile Inlines"""
-    
-    list_display = [
-        'email', 'username', 'full_name_display', 'role',
-        'profile_status', 'is_active', 'is_staff', 'created_at'
-    ]
-    list_filter = [
-        'is_active', 'is_staff', 'is_superuser',
-        'groups', 'created_at', 'is_verified'
-    ]
-    search_fields = [
-        'email', 'username', 'first_name',
-        'last_name', 'employee_id', 'phone'
-    ]
-    ordering = ['-created_at']
-    
-    def get_inline_instances(self, request, obj=None):
-        """Show appropriate profile inline based on user's role"""
-        inline_instances = []
-        
-        if obj:
-            # Show doctor profile inline for doctors
-            if obj.groups.filter(name='Doctor').exists():
-                inline_instances.append(DoctorProfileInline(self.model, self.admin_site))
-            
-            # Show patient profile inline for patients
-            elif obj.groups.filter(name='Patient').exists():
-                inline_instances.append(PatientProfileInline(self.model, self.admin_site))
-        
-        return inline_instances
-    
-    fieldsets = (
-        ('Authentication', {
-            'fields': ('email', 'username', 'password')
-        }),
-        ('Personal Info', {
-            'fields': (
-                'first_name', 'last_name', 'date_of_birth',
-                'gender', 'phone', 'alternate_phone',
-                'profile_picture', 'bio'
-            )
-        }),
-        ('Address', {
-            'fields': (
-                'address_line1', 'address_line2',
-                'city', 'state', 'country', 'pincode'
-            ),
+        ('Additional Information', {
+            'fields': ('signature', 'languages_spoken'),
             'classes': ('collapse',)
         }),
-        ('Hospital Info', {
-            'fields': (
-                'employee_id', 'department', 'joining_date'
-            ),
-            'classes': ('collapse',)
-        }),
-        ('Permissions & Groups', {
-            'fields': (
-                'is_active', 'is_staff', 'is_superuser',
-                'is_verified', 'groups', 'user_permissions'
-            ),
-            'description': 'Select appropriate group (role) for this user. Doctor/Patient groups will show profile section below.'
-        }),
-        ('Important Dates', {
-            'fields': ('last_login', 'created_at', 'updated_at'),
+        ('Tenant & Metadata', {
+            'fields': ('tenant_id', 'created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
-    
-    add_fieldsets = (
-        ('User Account', {
-            'classes': ('wide',),
-            'fields': (
-                'email', 'username', 'password1', 'password2',
-                'first_name', 'last_name'
-            ),
-        }),
-        ('Role & Status', {
-            'classes': ('wide',),
-            'fields': (
-                'groups', 'is_staff', 'is_active'
-            ),
-            'description': 'After creating user, edit to add Doctor/Patient profile if needed.'
-        }),
-    )
-    
-    readonly_fields = ['created_at', 'updated_at', 'last_login']
-    
-    def role(self, obj):
-        """Display user's primary role with colored badge"""
-        role_name = obj.role
-        color_map = {
-            'Administrator': '#e74c3c',
-            'Doctor': '#3498db',
-            'Nurse': '#9b59b6',
-            'Receptionist': '#1abc9c',
-            'Pharmacist': '#f39c12',
-            'Lab Technician': '#34495e',
-            'Patient': '#27ae60',
-            'No Role': '#95a5a6'
-        }
-        color = color_map.get(role_name, '#95a5a6')
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 10px; border-radius: 3px; font-weight: bold;">{}</span>',
-            color, role_name
-        )
-    role.short_description = 'Role'
-    
+
     def full_name_display(self, obj):
-        """Display full name"""
-        return obj.get_full_name() or '-'
-    full_name_display.short_description = 'Full Name'
-    
-    def profile_status(self, obj):
-        """Show profile completion status"""
-        icons = []
-        if hasattr(obj, 'doctor_profile'):
-            icons.append('👨‍⚕️ Doctor Profile')
-        if hasattr(obj, 'patient_profile'):
-            icons.append('🏥 Patient Profile')
-        
-        if icons:
-            return format_html('<br>'.join(icons))
-        return format_html('<span style="color: #95a5a6;">No Profile</span>')
-    profile_status.short_description = 'Profile'
-    
-    def save_model(self, request, obj, form, change):
-        """Auto-create profile when group is assigned"""
-        super().save_model(request, obj, form, change)
-        
-        # Check if Doctor group is assigned and no profile exists
-        if obj.groups.filter(name='Doctor').exists() and not hasattr(obj, 'doctor_profile'):
-            from apps.doctors.models import DoctorProfile
-            DoctorProfile.objects.create(user=obj)
-        
-        # Check if Patient group is assigned and no profile exists
-        if obj.groups.filter(name='Patient').exists() and not hasattr(obj, 'patient_profile'):
-            from apps.patients.models import PatientProfile
-            # Create basic patient profile with user's data
-            PatientProfile.objects.create(
-                user=obj,
-                first_name=obj.first_name or 'Unknown',
-                last_name=obj.last_name or 'Unknown',
-                date_of_birth=obj.date_of_birth or '2000-01-01',
-                gender=obj.gender or 'other',
-                mobile_primary=obj.phone or '0000000000',
-                address_line1=obj.address_line1 or 'Not provided',
-                city=obj.city or 'Unknown',
-                state=obj.state or 'Unknown',
-                pincode=obj.pincode or '000000',
-                emergency_contact_name='Not provided',
-                emergency_contact_phone='0000000000',
-                emergency_contact_relation='Unknown',
-                created_by=request.user
+        """Display doctor's full name."""
+        return obj.full_name or obj.email
+    full_name_display.short_description = 'Doctor Name'
+
+    def status_badge(self, obj):
+        """Display status with colored badge."""
+        color_map = {
+            'active': '#27ae60',
+            'on_leave': '#f39c12',
+            'inactive': '#95a5a6'
+        }
+        color = color_map.get(obj.status, '#95a5a6')
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 10px; '
+            'border-radius: 3px; font-weight: bold;">{}</span>',
+            color, obj.get_status_display()
+        )
+    status_badge.short_description = 'Status'
+
+    def experience_display(self, obj):
+        """Display years of experience."""
+        return f"{obj.years_of_experience} years" if obj.years_of_experience else '-'
+    experience_display.short_description = 'Experience'
+
+    def license_status(self, obj):
+        """Display license validity status."""
+        is_valid = obj.is_license_valid
+        if is_valid is None:
+            return format_html('<span style="color: #95a5a6;">Unknown</span>')
+        elif is_valid:
+            return format_html('<span style="color: #27ae60;">✓ Valid</span>')
+        else:
+            return format_html('<span style="color: #e74c3c;">✗ Expired</span>')
+    license_status.short_description = 'License'
+
+    def license_status_display(self, obj):
+        """Display detailed license status."""
+        is_valid = obj.is_license_valid
+        if is_valid is None:
+            return 'No expiry date set'
+        elif is_valid:
+            return format_html(
+                '<span style="color: #27ae60; font-weight: bold;">✓ Valid</span> '
+                '(Expires: {})',
+                obj.license_expiry_date
             )
+        else:
+            return format_html(
+                '<span style="color: #e74c3c; font-weight: bold;">✗ Expired</span> '
+                '(Expired on: {})',
+                obj.license_expiry_date
+            )
+    license_status_display.short_description = 'License Status'
+
+
+# Note: NO User model admin - authentication is handled by SuperAdmin
