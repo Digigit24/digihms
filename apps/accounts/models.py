@@ -6,6 +6,9 @@ No database tables are created for these models - they exist only as API data co
 """
 
 from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+import uuid
 
 
 # NOTE: We keep the User model for Django Admin compatibility but it's not used for HMS users
