@@ -1,29 +1,34 @@
 """
-DigiHMS Accounts Serializers
+Accounts Serializers - API Data Validators
 
-Serializers for doctor profiles and specialties.
-Authentication is handled by SuperAdmin - no local user serializers.
+These serializers validate and format data for SuperAdmin API calls.
+They work with dictionaries instead of Django models.
 """
 
 from rest_framework import serializers
-from apps.accounts.models import DoctorProfile, Specialty, DoctorAvailability
+from typing import Dict, Any, List
 
 
-class SpecialtySerializer(serializers.ModelSerializer):
-    """Serializer for medical specialties."""
+class RoleSerializer(serializers.Serializer):
+    """Serializer for Role data from SuperAdmin API"""
 
-    class Meta:
-        model = Specialty
-        fields = [
-            'id', 'name', 'code', 'description', 'department',
-            'is_active', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'tenant_id']
+    id = serializers.UUIDField(read_only=True)
+    tenant = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=100)
+    description = serializers.CharField(required=False, allow_blank=True)
+    permissions = serializers.JSONField(default=dict)
+    is_active = serializers.BooleanField(default=True)
+    created_by = serializers.UUIDField(read_only=True)
+    created_by_email = serializers.EmailField(read_only=True)
+    member_count = serializers.IntegerField(read_only=True, required=False)
+    created_at = serializers.DateTimeField(read_only=True, required=False)
+    updated_at = serializers.DateTimeField(read_only=True, required=False)
 
-
-class DoctorAvailabilitySerializer(serializers.ModelSerializer):
-    """Serializer for doctor availability schedules."""
-    day_of_week_display = serializers.CharField(source='get_day_of_week_display', read_only=True)
+    def validate_permissions(self, value):
+        """Validate permissions structure"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Permissions must be a JSON object")
+        return value
 
     class Meta:
         model = DoctorAvailability
@@ -38,164 +43,203 @@ class DoctorProfileListSerializer(serializers.ModelSerializer):
     """
     Serializer for doctor profile list view.
 
-    Lightweight serializer for listing doctors.
-    """
-    full_name = serializers.CharField(read_only=True)
-    is_license_valid = serializers.BooleanField(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    specialties = SpecialtySerializer(many=True, read_only=True)
+class UserSerializer(serializers.Serializer):
+    """Serializer for User data from SuperAdmin API"""
 
-    class Meta:
-        model = DoctorProfile
-        fields = [
-            'id', 'user_id', 'email', 'first_name', 'last_name', 'full_name',
-            'medical_license_number', 'status', 'status_display',
-            'specialties', 'years_of_experience', 'consultation_fee',
-            'is_available_online', 'is_available_offline',
-            'average_rating', 'total_consultations', 'is_license_valid'
-        ]
-        read_only_fields = [
-            'id', 'user_id', 'email', 'tenant_id', 'last_synced_at',
-            'average_rating', 'total_reviews', 'total_consultations'
-        ]
-
-
-class DoctorProfileDetailSerializer(serializers.ModelSerializer):
-    """
-    Serializer for doctor profile detail view.
-
-    Complete doctor information including availability.
-    """
-    full_name = serializers.CharField(read_only=True)
-    is_license_valid = serializers.BooleanField(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    specialties = SpecialtySerializer(many=True, read_only=True)
-    availability = DoctorAvailabilitySerializer(many=True, read_only=True)
-
-    class Meta:
-        model = DoctorProfile
-        fields = [
-            'id', 'user_id', 'email', 'first_name', 'last_name', 'full_name',
-            'tenant_id', 'medical_license_number', 'license_issuing_authority',
-            'license_issue_date', 'license_expiry_date', 'is_license_valid',
-            'qualifications', 'specialties', 'years_of_experience',
-            'consultation_fee', 'follow_up_fee', 'consultation_duration',
-            'is_available_online', 'is_available_offline',
-            'status', 'status_display', 'average_rating', 'total_reviews',
-            'total_consultations', 'signature', 'languages_spoken',
-            'availability', 'created_at', 'updated_at', 'last_synced_at'
-        ]
-        read_only_fields = [
-            'id', 'user_id', 'email', 'tenant_id', 'last_synced_at',
-            'average_rating', 'total_reviews', 'total_consultations'
-        ]
-
-
-class DoctorProfileCreateUpdateSerializer(serializers.ModelSerializer):
-    """
-    Serializer for creating/updating doctor profiles.
-
-    Used by staff with appropriate permissions to create or update doctor info.
-    """
-    specialty_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
+    id = serializers.UUIDField(read_only=True)
+    email = serializers.EmailField()
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True, allow_null=True)
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    tenant = serializers.UUIDField(read_only=True, required=False)
+    tenant_name = serializers.CharField(read_only=True, required=False)
+    roles = RoleSerializer(many=True, read_only=True, required=False)
+    role_ids = serializers.ListField(
+        child=serializers.UUIDField(),
         write_only=True,
-        help_text="List of specialty IDs to assign to doctor"
+        required=False
     )
+    is_super_admin = serializers.BooleanField(read_only=True, required=False)
+    profile_picture = serializers.URLField(max_length=500, required=False, allow_blank=True, allow_null=True)
+    timezone = serializers.CharField(max_length=50, default='Asia/Kolkata')
+    is_active = serializers.BooleanField(default=True)
+    date_joined = serializers.DateTimeField(read_only=True, required=False)
 
-    class Meta:
-        model = DoctorProfile
-        fields = [
-            'id', 'user_id', 'email', 'first_name', 'last_name',
-            'medical_license_number', 'license_issuing_authority',
-            'license_issue_date', 'license_expiry_date',
-            'qualifications', 'specialty_ids', 'years_of_experience',
-            'consultation_fee', 'follow_up_fee', 'consultation_duration',
-            'is_available_online', 'is_available_offline',
-            'status', 'signature', 'languages_spoken'
-        ]
-        read_only_fields = ['id', 'tenant_id', 'last_synced_at']
+    # Additional HMS-specific fields (optional)
+    department = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
+    employee_id = serializers.CharField(max_length=20, required=False, allow_blank=True, allow_null=True)
 
-    def validate_user_id(self, value):
-        """Ensure user_id is not already linked to another doctor profile."""
-        # Check if updating existing profile
-        if self.instance:
-            # Allow same user_id if it's the same doctor
-            if self.instance.user_id == value:
-                return value
-
-        # Check if user_id is already used
-        if DoctorProfile.objects.filter(user_id=value).exists():
-            raise serializers.ValidationError(
-                "This user already has a doctor profile."
-            )
-
+    def validate_email(self, value):
+        """Validate email format"""
+        value = value.lower().strip()
         return value
 
+
+class UserCreateSerializer(serializers.Serializer):
+    """Serializer for creating new users via SuperAdmin API"""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
+    password_confirm = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    role_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=True
+    )
+    timezone = serializers.CharField(max_length=50, default='Asia/Kolkata')
+
+    # HMS-specific fields
+    department = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    employee_id = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
     def validate(self, attrs):
-        """Validate license dates and other fields."""
-        issue_date = attrs.get('license_issue_date')
-        expiry_date = attrs.get('license_expiry_date')
+        """Validate password match"""
+        password = attrs.get('password')
+        password_confirm = attrs.get('password_confirm')
 
-        # If updating, get existing values if not provided
-        if self.instance:
-            issue_date = issue_date or self.instance.license_issue_date
-            expiry_date = expiry_date or self.instance.license_expiry_date
-
-        if issue_date and expiry_date:
-            if expiry_date < issue_date:
-                raise serializers.ValidationError({
-                    'license_expiry_date': 'Expiry date must be after issue date.'
-                })
-
-        # Validate consultation fees
-        consultation_fee = attrs.get('consultation_fee')
-        if consultation_fee is not None and consultation_fee < 0:
+        if password != password_confirm:
             raise serializers.ValidationError({
-                'consultation_fee': 'Consultation fee cannot be negative.'
+                "password": "Passwords don't match"
             })
 
-        follow_up_fee = attrs.get('follow_up_fee')
-        if follow_up_fee is not None and follow_up_fee < 0:
+        # Remove password_confirm as it's not needed for API call
+        attrs.pop('password_confirm')
+        return attrs
+
+    def validate_email(self, value):
+        """Validate and normalize email"""
+        return value.lower().strip()
+
+
+class RegisterSerializer(serializers.Serializer):
+    """Serializer for tenant registration via SuperAdmin API"""
+
+    tenant_name = serializers.CharField(max_length=255)
+    tenant_slug = serializers.SlugField(max_length=255)
+    admin_email = serializers.EmailField()
+    admin_password = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
+    admin_password_confirm = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
+    admin_first_name = serializers.CharField(max_length=150)
+    admin_last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    enabled_modules = serializers.ListField(
+        child=serializers.CharField(),
+        default=['crm', 'whatsapp', 'meetings', 'hms']  # Add HMS by default
+    )
+
+    def validate(self, attrs):
+        """Validate passwords match"""
+        password = attrs.get('admin_password')
+        password_confirm = attrs.get('admin_password_confirm')
+
+        if password != password_confirm:
             raise serializers.ValidationError({
-                'follow_up_fee': 'Follow-up fee cannot be negative.'
+                "admin_password": "Passwords don't match"
             })
 
-        # Validate consultation duration
-        duration = attrs.get('consultation_duration')
-        if duration and duration < 5:
+        # Ensure HMS is in enabled modules
+        enabled_modules = attrs.get('enabled_modules', [])
+        if 'hms' not in enabled_modules:
+            enabled_modules.append('hms')
+            attrs['enabled_modules'] = enabled_modules
+
+        return attrs
+
+    def validate_admin_email(self, value):
+        """Validate and normalize email"""
+        return value.lower().strip()
+
+
+class LoginSerializer(serializers.Serializer):
+    """Serializer for user login"""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+
+    def validate_email(self, value):
+        """Validate and normalize email"""
+        return value.lower().strip()
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer for changing password"""
+
+    old_password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    new_password = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
+    new_password_confirm = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
+
+    def validate(self, attrs):
+        """Validate new passwords match"""
+        new_password = attrs.get('new_password')
+        new_password_confirm = attrs.get('new_password_confirm')
+
+        if new_password != new_password_confirm:
             raise serializers.ValidationError({
-                'consultation_duration': 'Consultation duration must be at least 5 minutes.'
+                "new_password": "Passwords don't match"
             })
 
         return attrs
 
-    def create(self, validated_data):
-        """Create doctor profile with specialties."""
-        specialty_ids = validated_data.pop('specialty_ids', [])
 
-        doctor = DoctorProfile.objects.create(**validated_data)
+class TokenRefreshSerializer(serializers.Serializer):
+    """Serializer for refreshing JWT token"""
 
-        # Add specialties
-        if specialty_ids:
-            specialties = Specialty.objects.filter(id__in=specialty_ids)
-            doctor.specialties.set(specialties)
+    refresh = serializers.CharField()
 
-        return doctor
 
-    def update(self, instance, validated_data):
-        """Update doctor profile with specialties."""
-        specialty_ids = validated_data.pop('specialty_ids', None)
+class AssignRolesSerializer(serializers.Serializer):
+    """Serializer for assigning roles to a user"""
 
-        # Update doctor fields
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
+    role_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False
+    )
 
-        # Update specialties if provided
-        if specialty_ids is not None:
-            specialties = Specialty.objects.filter(id__in=specialty_ids)
-            instance.specialties.set(specialties)
 
-        return instance
+class RemoveRoleSerializer(serializers.Serializer):
+    """Serializer for removing a role from a user"""
+
+    role_id = serializers.UUIDField()
+
+
+# ==================== Response Serializers ====================
+# These are for documenting API responses
+
+class TokenPairSerializer(serializers.Serializer):
+    """Serializer for JWT token pair"""
+
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+
+
+class LoginResponseSerializer(serializers.Serializer):
+    """Serializer for login response"""
+
+    message = serializers.CharField()
+    user = UserSerializer()
+    tokens = TokenPairSerializer()
+
+
+class RegisterResponseSerializer(serializers.Serializer):
+    """Serializer for registration response"""
+
+    message = serializers.CharField()
+    user = UserSerializer()
+    tokens = TokenPairSerializer()
+
+
+class SuccessMessageSerializer(serializers.Serializer):
+    """Generic success message serializer"""
+
+    success = serializers.BooleanField(default=True)
+    message = serializers.CharField()
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    """Generic error response serializer"""
+
+    success = serializers.BooleanField(default=False)
+    error = serializers.CharField()
+    detail = serializers.CharField(required=False)

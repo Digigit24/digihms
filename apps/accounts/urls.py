@@ -1,38 +1,44 @@
 """
-DigiHMS Accounts URLs
+Accounts URLs - SuperAdmin API Proxy
 
-API endpoints for doctor profiles and specialties.
-Authentication is handled by SuperAdmin - no local auth endpoints.
+URL configuration for user and role management through SuperAdmin backend.
 """
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import DoctorProfileViewSet, SpecialtyViewSet
+from .views import (
+    RegisterView,
+    LoginView,
+    LogoutView,
+    MeView,
+    ChangePasswordView,
+    TokenRefreshView,
+    UserViewSet,
+    RoleViewSet,
+)
 
 # Create router and register viewsets
 router = DefaultRouter()
-router.register(r'doctors', DoctorProfileViewSet, basename='doctor')
-router.register(r'specialties', SpecialtyViewSet, basename='specialty')
+router.register(r'users', UserViewSet, basename='user')
+router.register(r'roles', RoleViewSet, basename='role')
 
 urlpatterns = [
-    # All endpoints are from the router
+    # Authentication endpoints
+    path('auth/register/', RegisterView.as_view(), name='register'),
+    path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
+    path('auth/me/', MeView.as_view(), name='me'),
+    path('auth/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+
+    # User and Role management endpoints (from router)
+    # - /api/accounts/users/ - List/Create users
+    # - /api/accounts/users/{id}/ - Retrieve/Update/Delete user
+    # - /api/accounts/users/{id}/assign_roles/ - Assign roles to user
+    # - /api/accounts/users/{id}/remove_role/ - Remove role from user
+    # - /api/accounts/roles/ - List/Create roles
+    # - /api/accounts/roles/{id}/ - Retrieve/Update/Delete role
+    # - /api/accounts/roles/{id}/members/ - Get role members
+    # - /api/accounts/roles/permissions_schema/ - Get permissions schema
     path('', include(router.urls)),
 ]
-
-# Available endpoints:
-# GET    /api/auth/doctors/              - List doctor profiles
-# POST   /api/auth/doctors/              - Create doctor profile
-# GET    /api/auth/doctors/{id}/         - Get doctor profile details
-# PUT    /api/auth/doctors/{id}/         - Update doctor profile
-# PATCH  /api/auth/doctors/{id}/         - Partial update doctor profile
-# DELETE /api/auth/doctors/{id}/         - Delete doctor profile
-# GET    /api/auth/doctors/me/           - Get current user's doctor profile
-# POST   /api/auth/doctors/sync_from_jwt/ - Sync doctor profile from JWT
-# POST   /api/auth/doctors/{id}/set_availability/ - Set doctor availability
-# GET    /api/auth/doctors/{id}/statistics/ - Get doctor statistics
-#
-# GET    /api/auth/specialties/          - List specialties
-# POST   /api/auth/specialties/          - Create specialty
-# GET    /api/auth/specialties/{id}/     - Get specialty details
-# PUT    /api/auth/specialties/{id}/     - Update specialty
-# DELETE /api/auth/specialties/{id}/     - Delete specialty

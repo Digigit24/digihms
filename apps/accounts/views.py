@@ -84,6 +84,8 @@ class SpecialtyViewSet(TenantViewSetMixin, PermissionMixin, viewsets.ModelViewSe
         return queryset.order_by('name')
 
 
+# ==================== User Management ViewSet ====================
+
 @extend_schema_view(
     list=extend_schema(
         summary="List doctor profiles",
